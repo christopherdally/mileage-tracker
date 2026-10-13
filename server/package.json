@@ -1,0 +1,18 @@
+{
+  "name": "mileage-tracker-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/index.js",
+    "create-admin": "node src/create-admin.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "optionalDependencies": {
+    "@aws-sdk/client-s3": "^3.700.0"
+  }
+}

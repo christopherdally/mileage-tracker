@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1d5aa6"/>
+  <rect x="72" y="176" width="368" height="160" rx="22" fill="#1a1d20"/>
+  <g font-family="DIN Alternate, Bahnschrift, Roboto Condensed, Arial Narrow, sans-serif" font-weight="700" font-size="108" text-anchor="middle">
+    <rect x="88" y="192" width="80" height="128" rx="10" fill="#2a3035"/>
+    <text x="128" y="294" fill="#f4f5f2">0</text>
+    <rect x="176" y="192" width="80" height="128" rx="10" fill="#2a3035"/>
+    <text x="216" y="294" fill="#f4f5f2">2</text>
+    <rect x="264" y="192" width="80" height="128" rx="10" fill="#2a3035"/>
+    <text x="304" y="294" fill="#f4f5f2">7</text>
+    <rect x="352" y="192" width="72" height="128" rx="10" fill="#f2c230"/>
+    <text x="388" y="294" fill="#1f2326">4</text>
+  </g>
+</svg>

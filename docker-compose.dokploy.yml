@@ -1,0 +1,59 @@
+# Dokploy "Compose" deployment: app + its own Postgres.
+# In Dokploy set Compose Path to ./docker-compose.dokploy.yml, paste the environment
+# variables from DOKPLOY.md, then add your domain on the Domains tab (service: app, port: 3000).
+# No host ports are published; Dokploy's Traefik routes the domain and provides HTTPS.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mileage
+      POSTGRES_USER: mileage
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mileage -d mileage"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PG_CLIENT_VERSION: "16"
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "3000"
+    environment:
+      DATABASE_URL: postgresql://mileage:${POSTGRES_PASSWORD}@db:5432/mileage
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-cdallywales@gmail.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_NAME: ${ADMIN_NAME:-}
+      TRUST_PROXY: "true"
+      SESSION_DAYS: ${SESSION_DAYS:-60}
+      TZ: ${TZ:-Europe/London}
+      BACKUP_TARGET: ${BACKUP_TARGET:-local}
+      BACKUP_TIME: ${BACKUP_TIME:-02:00}
+      BACKUP_KEEP: ${BACKUP_KEEP:-30}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PREFIX: ${S3_PREFIX:-mileage-tracker/}
+      S3_REGION: ${S3_REGION:-eu-west-2}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      S3_SSE: ${S3_SSE:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    volumes:
+      - backups:/backups
+
+volumes:
+  pgdata:
+  backups:
