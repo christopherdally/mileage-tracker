@@ -64,6 +64,12 @@ export function MoreScreen({ user, onUser, onSignOut, go }) {
       <header className="screen-head"><h1>Settings</h1></header>
 
       <section className="panel">
+        <h2 className="panel-title">Company end dates</h2>
+        <p className="muted small">Enter fuel card and mileage end dates for several months ahead.</p>
+        <button type="button" className="btn btn-quiet" onClick={() => go("company-dates")}>Manage end dates</button>
+      </section>
+
+      <section className="panel">
         <h2 className="panel-title">Sync</h2>
         <p className={status.state === 'error' ? 'warn-text' : ''}>{statusText}</p>
         <p className="muted small">Last synced {ago(meta.lastSync)}</p>
@@ -107,3 +113,4 @@ export function MoreScreen({ user, onUser, onSignOut, go }) {
     </div>
   );
 }
+

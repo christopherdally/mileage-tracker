@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { EntryPeriod, PeriodSettings } from '../PeriodSettings.jsx';
+import { EntryPeriod } from '../PeriodSettings.jsx';
 import { currentMonth, reportPeriod } from '../periods.js';
 import { store, useStore } from '../store.js';
 import { syncSoon } from '../sync.js';
@@ -246,7 +246,7 @@ export function FuelScreen({ claimStartDay }) {
       <p className="lede">What you actually paid at the pump, so you can compare it with your mileage claim.</p>
 
       <Field label="Report month">{id => <input id={id} type="month" value={month} onChange={e => { if (e.target.value) setMonth(e.target.value); }} />}</Field>
-      <PeriodSettings month={month} />
+      <p><a href={`#company-dates?month=${month}&back=fuel`}>Company end dates: fuel through {fmtDate(period.to)}, mileage through {fmtDate(mileagePeriod.to)}</a></p>
       <p className="muted small">Mileage: {fmtDate(mileagePeriod.from)} to {fmtDate(mileagePeriod.to)}</p>
       <section className="panel">
         <h2 className="panel-title">{fmtDate(period.from, { year: false })} to {fmtDate(period.to, { year: false })}</h2>

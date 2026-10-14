@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { PeriodSettings } from '../PeriodSettings.jsx';
 import { currentMonth, reportPeriod, shiftMonth } from '../periods.js';
 import { store, useStore } from '../store.js';
 import { buildReport, fuelSummary } from '../calc.js';
@@ -77,13 +76,12 @@ export function ReportScreen({ claimStartDay }) {
           </Field>
         </div>
       ) : (
-        <p className="range-line">{fmtDate(range.from)} to {fmtDate(range.to)}</p>
+        <p className="range-line"><a href={`#company-dates?month=${selectedMonth}&back=report`}>Mileage: {fmtDate(range.from)} to {fmtDate(range.to)}</a></p>
       )}
       {preset !== 'custom' && <>
         <Field label="Report month">{id => <input id={id} type="month" value={month} onChange={e => { if (e.target.value) setMonth(e.target.value); }} />}</Field>
-        <PeriodSettings month={selectedMonth} />
       </>}
-      <p className="range-line">Fuel: {fmtDate(fuelRange.from)} to {fmtDate(fuelRange.to)}</p>
+      <p className="range-line">{preset === "custom" ? <>Fuel: {fmtDate(fuelRange.from)} to {fmtDate(fuelRange.to)}</> : <a href={`#company-dates?month=${selectedMonth}&back=report`}>Fuel: {fmtDate(fuelRange.from)} to {fmtDate(fuelRange.to)}</a>}</p>
       <p className="muted small">Entries dated after each cutoff appear on the next report.</p>
 
       {report && (
