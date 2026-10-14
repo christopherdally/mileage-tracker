@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { parseReceiptText } from '../src/receipt-text.js';
+assert.deepEqual(parseReceiptText('SHELL CARDIFF\n04/11/2026\nDiesel 40.50 L\nPrice 149.9 p/l\nVAT 10.12\nTOTAL £60.71\nVISA 60.71'), {date:'2026-11-04', amount:'60.71', litres:'40.50', description:'SHELL CARDIFF'});
+assert.equal(parseReceiptText('TOTAL\n£89.99\nLitres: 61.20').amount,'89.99');
+assert.equal(parseReceiptText('31/02/2026\nCard 1234567890123456\nVAT 20.00\nSUBTOTAL 50.00').amount,'');
+assert.equal(parseReceiptText('31/02/2026').date,'');
+assert.equal(parseReceiptText('TOTAL 60.00\nTOTAL 70.00').amount,'');
+assert.equal(parseReceiptText('04/11/26\n05/11/26').date,'');
+assert.equal(parseReceiptText('TOTAL 45,67\nVOLUME 30,25').litres,'30.25');
+assert.equal(parseReceiptText('TOTAL 45,67').amount,'45.67');
+assert.equal(parseReceiptText('Price per litre 1.49').litres,'');
+assert.equal(parseReceiptText('unreadable').amount,'');
+console.log('Receipt text tests passed');
