@@ -68,3 +68,8 @@ Use this if you'd rather manage the database as a separate Dokploy service.
   `npm run create-admin -- cdallywales@gmail.com 'a-new-password'`
 - **Updates**: push to the branch and redeploy (or turn on auto-deploy). Phones show "A new version is ready" and reload when tapped.
 - `ADMIN_PASSWORD` is only used when the database has no users. After first sign-in it's no longer needed and can be removed from the environment.
+
+
+## Personal report archive
+
+Users can upload past monthly PDFs (up to 3 MB) in Settings → Report archive or archive a past report directly from the report screen. Each upload is a separate snapshot. Reports use the existing S3_BUCKET, S3_PREFIX, S3_REGION, S3_ENDPOINT, S3_FORCE_PATH_STYLE, S3_SSE and AWS credentials configuration. The application needs PutObject, GetObject and DeleteObject on `<S3_PREFIX>/reports/*`. Keep the bucket private. Report keys are isolated per user and all API operations enforce ownership. Reports are not rotated by BACKUP_KEEP. Startup migration creates report_archives metadata, which is included in database dumps; S3 objects themselves need bucket-level backup/versioning if required. Restoring older metadata may omit newer archive records. Deletes use S3 DeleteObject; bucket versioning/lifecycle policies determine retention of previous versions.

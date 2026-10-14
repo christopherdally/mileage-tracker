@@ -201,3 +201,20 @@ export function startBackupSchedule() {
   scheduleNext();
   console.log(`Scheduled backups: daily at ${t} (${env.TZ || 'server time'})`);
 }
+
+
+// User report PDFs are separate from rotating database dumps and never auto-pruned.
+export async function putReportObject(Key, Body) {
+  const { m, c } = await s3();
+  await c.send(new m.PutObjectCommand({ Bucket: env.S3_BUCKET, Key, Body, ContentType: 'application/pdf', ServerSideEncryption: env.S3_SSE || undefined }));
+}
+export async function getReportObject(Key) {
+  const { m, c } = await s3();
+  const obj = await c.send(new m.GetObjectCommand({ Bucket: env.S3_BUCKET, Key }));
+  return Buffer.from(await obj.Body.transformToByteArray());
+}
+export async function deleteReportObject(Key) {
+  const { m, c } = await s3();
+  await c.send(new m.DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key }));
+}
+export const reportObjectKey = (userId, id) => `${s3Prefix().replace(/\/?$/, '/')}reports/${userId}/${id}.pdf`;

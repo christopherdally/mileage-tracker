@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ReportArchiveScreen } from './screens/ReportArchive.jsx';
 import { CompanyDatesScreen } from './screens/CompanyDates.jsx';
 import { CutoffReminders } from './PeriodSettings.jsx';
 import { api, session, onSignedOut, OfflineError } from './api.js';
@@ -21,7 +22,7 @@ const TABS = [
   { id: 'report', label: 'Report', icon: 'report' },
   { id: 'more', label: 'Settings', icon: 'more' },
 ];
-const SUBPAGES = { users: 'more', backups: 'more', 'company-dates': 'more' };
+const SUBPAGES = { users: 'more', backups: 'more', 'report-archive': 'more', 'company-dates': 'more' };
 
 function useRoute() {
   const read = () => (location.hash.slice(1) || 'log');
@@ -100,13 +101,14 @@ function Shell({ user, setUser, signOut }) {
   const status = useSyncStatus();
   const claimStartDay = meta.claimStartDay || 1;
   const tab = SUBPAGES[route] || (TABS.some((t) => t.id === route) ? route : 'log');
-  const page = route === 'company-dates' || (SUBPAGES[route] && user.isAdmin) ? route : tab;
+  const page = route === 'report-archive' || route === 'company-dates' || (SUBPAGES[route] && user.isAdmin) ? route : tab;
 
   return (
     <div className="app">
       <SyncBar status={status} pending={pending} />
       <main id="main">
         <CutoffReminders />
+        {page === 'report-archive' && <ReportArchiveScreen back={() => go('more')} />}
         {page === 'company-dates' && <CompanyDatesScreen key={rawRoute} back={() => { const source = new URLSearchParams(rawRoute.split('?')[1] || '').get('back'); go(['report', 'fuel'].includes(source) ? source : 'more'); }} />}
         {page === 'log' && <LogScreen claimStartDay={claimStartDay} />}
         {page === 'trips' && <TripsScreen />}
@@ -234,4 +236,5 @@ function FirstPassword({ user, onDone, onSignOut }) {
     </main>
   );
 }
+
 

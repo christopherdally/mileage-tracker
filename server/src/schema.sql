@@ -103,3 +103,15 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 INSERT INTO meta (key, value) VALUES ('data_epoch', gen_random_uuid()::text) ON CONFLICT (key) DO NOTHING;
 
+
+
+CREATE TABLE IF NOT EXISTS report_archives (
+ id UUID PRIMARY KEY,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ report_month TEXT NOT NULL,
+ filename TEXT NOT NULL,
+ object_key TEXT NOT NULL UNIQUE,
+ size_bytes INTEGER NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS report_archives_user ON report_archives(user_id, report_month);

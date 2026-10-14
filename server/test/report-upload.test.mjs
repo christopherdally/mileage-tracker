@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { validateReportUpload } from '../src/report-upload.js';
+const body = { month: '2026-09', filename: '../../my report.pdf', pdf: Buffer.from('%PDF-1.7\nreport').toString('base64') };
+const result = validateReportUpload(body, '2026-10');
+assert.equal(result.month, '2026-09');
+assert.equal(result.data.subarray(0, 5).toString(), '%PDF-');
+assert.equal(result.filename.includes('/'), false);
+assert.equal(result.filename.endsWith('.pdf'), true);
+for (const month of ['2026-10', '2026-11', '2026-13', '../foo', '']) assert.throws(() => validateReportUpload({...body, month}, '2026-10'));
+assert.throws(() => validateReportUpload({...body, pdf:Buffer.from('not pdf').toString('base64')}, '2026-10'));
+assert.throws(() => validateReportUpload({...body, pdf:'!bad'}, '2026-10'));
+assert.throws(() => validateReportUpload({...body, pdf: 'A'.repeat(4*1024*1024+1)}, '2026-10'));
+console.log('Report upload validation tests passed');
