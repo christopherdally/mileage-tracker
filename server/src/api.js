@@ -1,4 +1,7 @@
 import fsp from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { validateReportUpload } from './report-upload.js';
+import { putReportObject, getReportObject, deleteReportObject, reportObjectKey } from './backup.js';
 import { query, withTx } from './db.js';
 import { HttpError, createRouter, rateLimiter, sendFile, sendBytes } from './http.js';
 import {
@@ -412,3 +415,43 @@ api.post('/api/backups/:id/restore', async (req) => {
   });
 });
 
+
+
+// Personal report archives. Authentication and ownership are required on every operation.
+const archiveMonthNow = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit' }).format(new Date());
+api.get('/api/report-archives', async req => {
+  const me = await authenticate(req);
+  const { rows } = await query('SELECT id, report_month AS month, filename, size_bytes AS size, created_at AS "createdAt" FROM report_archives WHERE user_id=$1 ORDER BY report_month DESC, created_at DESC', [me.id]);
+  return { configured: s3Configured(), reports: rows };
+});
+api.post('/api/report-archives', async req => {
+  const me = await authenticate(req);
+  if (!s3Configured()) throw new HttpError(503, 'S3 report storage is not configured');
+  const { data, month, filename } = validateReportUpload(req.body, archiveMonthNow());
+  const id = randomUUID();
+  const key = reportObjectKey(me.id, id);
+  await putReportObject(key, data);
+  try {
+    await query('INSERT INTO report_archives (id,user_id,report_month,filename,object_key,size_bytes) VALUES ($1,$2,$3,$4,$5,$6)', [id,me.id,month,filename,key,data.length]);
+  } catch (err) { await deleteReportObject(key).catch(() => {}); throw err; }
+  return { id };
+});
+async function ownedReport(req) {
+  const me = await authenticate(req);
+  if (!UUID_RE.test(req.params.id)) throw new HttpError(404, 'Report not found');
+  const { rows } = await query('SELECT * FROM report_archives WHERE id=$1 AND user_id=$2', [req.params.id, me.id]);
+  if (!rows[0]) throw new HttpError(404, 'Report not found');
+  return rows[0];
+}
+api.get('/api/report-archives/:id/download', async (req, res) => {
+  const report = await ownedReport(req);
+  const data = await getReportObject(report.object_key);
+  res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${report.filename}"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  res.end(data);
+});
+api.delete('/api/report-archives/:id', async req => {
+  const report = await ownedReport(req);
+  await deleteReportObject(report.object_key);
+  await query('DELETE FROM report_archives WHERE id=$1 AND user_id=$2', [report.id, report.user_id]);
+  return { ok: true };
+});

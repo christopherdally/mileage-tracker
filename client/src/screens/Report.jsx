@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { archivePdf } from '../report-archive.js';
 import { currentMonth, reportPeriod, shiftMonth } from '../periods.js';
 import { store, useStore } from '../store.js';
 import { buildReport, fuelSummary } from '../calc.js';
@@ -38,7 +39,7 @@ export function ReportScreen({ claimStartDay }) {
     store.setMeta(k === 'from' ? 'customFrom' : 'customTo', v);
   }
 
-  async function makePdf(share) {
+  async function makePdf(share, archive = false) {
     setBusy(true);
     try {
       const { buildClaimPdf, claimFilename } = await import('../pdf.js');
@@ -46,6 +47,11 @@ export function ReportScreen({ claimStartDay }) {
       const name = claimFilename(report, session.user || { username: 'me' });
       const blob = new Blob([bytes], { type: 'application/pdf' });
       const file = new File([blob], name, { type: 'application/pdf' });
+      if (archive) {
+        await archivePdf(blob, selectedMonth, name);
+        toast('Report archived in S3');
+        return;
+      }
       if (share && navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file], title: 'Mileage claim' }).catch(() => {});
       } else {
@@ -124,7 +130,9 @@ export function ReportScreen({ claimStartDay }) {
             </section>
           )}
 
+          <p><a href="#report-archive">Manage archived reports</a></p>
           <div className="btn-stack">
+            {preset !== 'custom' && selectedMonth < today().slice(0, 7) && <button type="button" className="btn btn-quiet btn-block" disabled={busy || (!report.tripCount && !fuel?.count)} onClick={() => makePdf(false, true)}>Archive this report to S3</button>}
             <button type="button" className="btn btn-primary btn-block" disabled={busy || (!report.tripCount && !fuel?.count)} onClick={() => makePdf(false)}>
               {busy ? 'Making PDF…' : 'Download PDF'}
             </button>
@@ -139,3 +147,4 @@ export function ReportScreen({ claimStartDay }) {
     </div>
   );
 }
+

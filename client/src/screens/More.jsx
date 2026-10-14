@@ -63,6 +63,7 @@ export function MoreScreen({ user, onUser, onSignOut, go }) {
     <div className="screen">
       <header className="screen-head"><h1>Settings</h1></header>
 
+      <section className="panel"><h2 className="panel-title">Report archive</h2><p className="muted small">Upload, download and manage previous monthly report PDFs in S3.</p><button type="button" className="btn btn-quiet" onClick={() => go("report-archive")}>Manage archived reports</button></section>
       <section className="panel">
         <h2 className="panel-title">Company end dates</h2>
         <p className="muted small">Enter fuel card and mileage end dates for several months ahead.</p>
@@ -113,4 +114,5 @@ export function MoreScreen({ user, onUser, onSignOut, go }) {
     </div>
   );
 }
+
 
