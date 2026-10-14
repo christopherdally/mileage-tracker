@@ -80,6 +80,46 @@ export function FuelForm({ purchase, onDone }) {
   const [viewing, setViewing] = useState(null);
   const pickRef = useRef(null);
   const cameraRef = useRef(null);
+  const scanRef = useRef(null);
+  const scanCameraRef = useRef(null);
+  const scanAbort = useRef(null);
+  const [scanStatus, setScanStatus] = useState('');
+  const [scanResult, setScanResult] = useState(null);
+  useEffect(() => () => scanAbort.current?.abort(), []);
+
+  async function onScan(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (receiptIds.length >= 20) { toast('Remove a receipt before adding another', 'error'); return; }
+    setBusy(true);
+    setScanResult(null);
+    setScanStatus('Preparing receipt…');
+    const controller = new AbortController();
+    scanAbort.current = controller;
+    try {
+      const ids = await addReceipts([file]);
+      if (controller.signal.aborted) return;
+      setReceiptIds(cur => [...cur, ...ids]);
+      const blob = await getReceiptBlob(ids[0]);
+      const { scanReceipt } = await import('../receipt-scan.js');
+      const result = await scanReceipt(blob, setScanStatus, controller.signal);
+      if (!controller.signal.aborted) setScanResult(result);
+    } catch (err) {
+      if (!controller.signal.aborted) toast(`Could not read receipt: ${err.message}. You can enter details manually; any attached receipt is kept.`, 'error');
+    } finally {
+      if (!controller.signal.aborted) { setBusy(false); setScanStatus(''); }
+    }
+  }
+  function applyScan() {
+    const fields = scanResult.fields;
+    if (fields.date) setDate(fields.date);
+    if (fields.amount) setAmount(fields.amount);
+    if (fields.litres) setLitres(fields.litres);
+    if (fields.description) setDescription(fields.description);
+    setScanResult(null);
+    toast('Receipt details filled in. Check them before saving.');
+  }
 
   const a = parseNum(amount);
   const l = parseNum(litres);
@@ -102,6 +142,7 @@ export function FuelForm({ purchase, onDone }) {
 
   async function submit(e) {
     e.preventDefault();
+    if (busy) return;
     const errs = {};
     if (!date) errs.date = 'Choose the date you bought the fuel';
     if (a === null || Number.isNaN(a) || a <= 0) errs.amount = 'Enter what you paid, e.g. 89.99';
@@ -140,6 +181,17 @@ export function FuelForm({ purchase, onDone }) {
 
   return (
     <form onSubmit={submit} noValidate>
+      <section className="panel">
+        <h2 className="panel-title">Scan a paid fuel receipt</h2>
+        <p className="field-hint">Take a photo or upload a picture to read the date, amount paid, litres and retailer. Review the suggestions before using them. You can edit every field. Internet is needed to load the scanner; text recognition runs on your device.</p>
+        <div className="btn-row wrap">
+          <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => scanCameraRef.current?.click()}>Scan with camera</button>
+          <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => scanRef.current?.click()}>Scan uploaded photo</button>
+        </div>
+        <input ref={scanCameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onScan} />
+        <input ref={scanRef} type="file" accept="image/*" hidden onChange={onScan} />
+        {scanStatus && <p role="status" aria-live="polite">{scanStatus}</p>}
+      </section>
       <EntryPeriod date={date} kind="fuel" />
       <div className="row-2">
         <Field label="Date" error={errors.date}>
@@ -194,6 +246,19 @@ export function FuelForm({ purchase, onDone }) {
           <button type="submit" className="btn btn-primary" disabled={busy}>{purchase ? 'Save changes' : 'Save fuel'}</button>
         </div>
       </div>
+      <Sheet open={!!scanResult} onClose={() => setScanResult(null)} title="Review scanned receipt">
+        {scanResult && <>
+          <p className="notice">Check these suggestions against your receipt. Blank fields will leave your existing input unchanged. Using suggestions replaces matching fields; nothing is saved until you press Save fuel.</p>
+          {['date', 'amount', 'litres', 'description'].map(key => <Field key={key} label={{date:'Purchase date',amount:'Amount paid (£)',litres:'Litres',description:'Retailer'}[key]}>
+            {id => <input id={id} type={key === 'date' ? 'date' : 'text'} value={scanResult.fields[key]} onChange={e => { const value = e.target.value; setScanResult(cur => ({ ...cur, fields: { ...cur.fields, [key]: value } })); }} />}
+          </Field>)}
+          <details><summary>Read receipt text</summary><pre style={{whiteSpace:'pre-wrap'}}>{scanResult.text}</pre></details>
+          <div className="btn-row">
+            <button type="button" className="btn btn-quiet" onClick={() => setScanResult(null)}>Keep current input</button>
+            <button type="button" className="btn btn-primary" onClick={applyScan}>Use these details</button>
+          </div>
+        </>}
+      </Sheet>
       <ReceiptViewer open={viewing} onClose={() => setViewing(null)} />
     </form>
   );

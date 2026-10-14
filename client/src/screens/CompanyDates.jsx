@@ -11,7 +11,7 @@ export function CompanyDatesScreen({ back }) {
   const query = new URLSearchParams(location.hash.split('?')[1] || '');
   const requested = query.get('month');
   const [start, setStart] = useState(/^\d{4}-(0[1-9]|1[0-2])$/.test(requested || '') ? requested : today().slice(0, 7));
-  const [count, setCount] = useState(6);
+  const count = 24;
   const [draft, setDraft] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -46,7 +46,7 @@ export function CompanyDatesScreen({ back }) {
     <header className="screen-head"><h1>Company end dates</h1><button className="btn btn-quiet btn-small" type="button" onClick={leave}>Back</button></header>
     <p className="lede">Plan fuel card and mileage cutoffs for several months in advance. Each date includes the whole day; later purchases and journeys go on the next report.</p>
     <form onSubmit={save}>
-      <Field label="Starting report month">{id => <input id={id} type="month" value={start} onChange={e => { if (e.target.value) { setStart(e.target.value); setCount(6); } }} />}</Field>
+      <Field label="Starting report month">{id => <input id={id} type="month" value={start} onChange={e => { if (e.target.value) { setStart(e.target.value); } }} />}</Field>
       <p className="muted small">Dates default to fuel on the 7th and mileage on the 9th until you set your company's dates. Changes are saved together and sync across devices.</p>
       {months.map(month => <section key={month} className="panel">
         <h2 className="panel-title">{monthName(`${month}-01`)}</h2>
@@ -59,7 +59,6 @@ export function CompanyDatesScreen({ back }) {
       </section>)}
       {error && <p className="notice" role="alert">{error}</p>}
       <div className="btn-stack">
-        <button type="button" className="btn btn-quiet" disabled={count >= 24} onClick={() => setCount(n => Math.min(n + 6, 24))}>Show six more months</button>
         <button type="submit" className="btn btn-primary" disabled={busy || !Object.keys(draft).length}>{busy ? 'Saving…' : 'Save all end dates'}</button>
       </div>
     </form>
