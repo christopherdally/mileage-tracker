@@ -1,31 +1,36 @@
 import { useMemo, useState } from 'react';
+import { PeriodSettings } from '../PeriodSettings.jsx';
+import { currentMonth, reportPeriod, shiftMonth } from '../periods.js';
 import { store, useStore } from '../store.js';
 import { buildReport, fuelSummary } from '../calc.js';
 import { FuelComparison } from './Fuel.jsx';
 import { saveBlob, session } from '../api.js';
 import { Field, Segmented, useToast } from '../ui.jsx';
-import { claimPeriod, fmtDate, fmtMiles, fmtPounds, fmtRate, today, plural } from '../util.js';
+import { fmtDate, fmtMiles, fmtPounds, fmtRate, today, plural } from '../util.js';
 
-const ordinal = (n) => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
 
 export function ReportScreen({ claimStartDay }) {
   const { liveTrips, liveRates, liveFuel, meta } = useStore();
   const toast = useToast();
   const [preset, setPreset] = useState('current');
-  const cur = claimPeriod(today(), claimStartDay);
+  const settings = meta.periodSettings?.days || {};
+  const [month, setMonth] = useState(() => currentMonth(today(), "mileage", settings));
+  const selectedMonth = preset === "last" ? shiftMonth(month, -1) : month;
+  const cur = reportPeriod(month, "mileage", settings);
   const [custom, setCustom] = useState({ from: meta.customFrom || cur.from, to: meta.customTo || cur.to });
   const [busy, setBusy] = useState(false);
 
-  const range = preset === 'current' ? cur : preset === 'last' ? claimPeriod(today(), claimStartDay, -1) : custom;
+  const range = preset === 'current' ? cur : preset === 'last' ? reportPeriod(selectedMonth, 'mileage', settings) : custom;
   const valid = range.from && range.to && range.from <= range.to;
   const report = useMemo(
     () => (valid ? buildReport({ trips: liveTrips, rates: liveRates, ...range }) : null),
     [liveTrips, liveRates, range.from, range.to, valid] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  const fuelRange = preset === "custom" ? range : reportPeriod(selectedMonth, "fuel", settings);
   const fuel = useMemo(
-    () => (valid ? fuelSummary({ fuel: liveFuel, ...range }) : null),
-    [liveFuel, range.from, range.to, valid] // eslint-disable-line react-hooks/exhaustive-deps
+    () => (valid ? fuelSummary({ fuel: liveFuel, ...fuelRange }) : null),
+    [liveFuel, fuelRange.from, fuelRange.to, valid] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   function setCustomField(k, v) {
@@ -38,7 +43,7 @@ export function ReportScreen({ claimStartDay }) {
     setBusy(true);
     try {
       const { buildClaimPdf, claimFilename } = await import('../pdf.js');
-      const bytes = await buildClaimPdf({ report, rates: liveRates, fuel, user: session.user || {} });
+      const bytes = await buildClaimPdf({ report, rates: liveRates, fuel: { ...fuel, ...fuelRange }, user: session.user || {} });
       const name = claimFilename(report, session.user || { username: 'me' });
       const blob = new Blob([bytes], { type: 'application/pdf' });
       const file = new File([blob], name, { type: 'application/pdf' });
@@ -74,7 +79,12 @@ export function ReportScreen({ claimStartDay }) {
       ) : (
         <p className="range-line">{fmtDate(range.from)} to {fmtDate(range.to)}</p>
       )}
-      <ClaimDaySetting value={claimStartDay} />
+      {preset !== 'custom' && <>
+        <Field label="Report month">{id => <input id={id} type="month" value={month} onChange={e => { if (e.target.value) setMonth(e.target.value); }} />}</Field>
+        <PeriodSettings month={selectedMonth} />
+      </>}
+      <p className="range-line">Fuel: {fmtDate(fuelRange.from)} to {fmtDate(fuelRange.to)}</p>
+      <p className="muted small">Entries dated after each cutoff appear on the next report.</p>
 
       {report && (
         <>
@@ -127,27 +137,6 @@ export function ReportScreen({ claimStartDay }) {
             )}
           </div>
         </>
-      )}
-    </div>
-  );
-}
-
-function ClaimDaySetting({ value }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="claim-day">
-      {!open ? (
-        <button type="button" className="link-btn" onClick={() => setOpen(true)}>
-          Claim periods run from the {ordinal(value)} of each month. Change
-        </button>
-      ) : (
-        <Field label="Claim periods start on day" hint="1 gives calendar months. 26 gives 26th to 25th.">
-          {(id) => (
-            <select id={id} value={value} onChange={(e) => { store.setMeta('claimStartDay', Number(e.target.value)); setOpen(false); }}>
-              {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{ordinal(d)}</option>)}
-            </select>
-          )}
-        </Field>
       )}
     </div>
   );

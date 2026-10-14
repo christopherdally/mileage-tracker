@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { EntryPeriod, PeriodSettings } from '../PeriodSettings.jsx';
+import { currentMonth, reportPeriod } from '../periods.js';
 import { store, useStore } from '../store.js';
 import { syncSoon } from '../sync.js';
 import { addReceipts, getReceiptBlob } from '../receipts.js';
 import { buildReport, fuelSummary, pencePerLitre } from '../calc.js';
 import { OfflineError } from '../api.js';
 import { Empty, Field, Sheet, parseNum, useToast } from '../ui.jsx';
-import { claimPeriod, fmtDate, fmtPounds, monthName, today, uuid, plural } from '../util.js';
+import { fmtDate, fmtPounds, monthName, today, uuid, plural } from '../util.js';
 
 const fmtLitres = (l) => `${Number(l).toLocaleString('en-GB', { maximumFractionDigits: 2 })} L`;
 const fmtPpl = (p) => `${p.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}p/L`;
@@ -138,6 +140,7 @@ export function FuelForm({ purchase, onDone }) {
 
   return (
     <form onSubmit={submit} noValidate>
+      <EntryPeriod date={date} kind="fuel" />
       <div className="row-2">
         <Field label="Date" error={errors.date}>
           {(id) => <input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}
@@ -212,13 +215,16 @@ export function FuelComparison({ claimPence, fuelPence, fuelCount }) {
 }
 
 export function FuelScreen({ claimStartDay }) {
-  const { liveFuel, liveTrips, liveRates } = useStore();
+  const { liveFuel, liveTrips, liveRates, meta } = useStore();
+  const settings = meta.periodSettings?.days || {};
+  const [month, setMonth] = useState(() => currentMonth(today(), "fuel", settings));
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
 
-  const period = claimPeriod(today(), claimStartDay);
+  const period = reportPeriod(month, "fuel", settings);
+  const mileagePeriod = reportPeriod(month, "mileage", settings);
   const sum = useMemo(() => fuelSummary({ fuel: liveFuel, ...period }), [liveFuel, period.from, period.to]); // eslint-disable-line react-hooks/exhaustive-deps
-  const claim = useMemo(() => buildReport({ trips: liveTrips, rates: liveRates, ...period }), [liveTrips, liveRates, period.from, period.to]); // eslint-disable-line react-hooks/exhaustive-deps
+  const claim = useMemo(() => buildReport({ trips: liveTrips, rates: liveRates, ...mileagePeriod }), [liveTrips, liveRates, mileagePeriod.from, mileagePeriod.to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const months = useMemo(() => {
     const by = new Map();
@@ -239,6 +245,9 @@ export function FuelScreen({ claimStartDay }) {
       </header>
       <p className="lede">What you actually paid at the pump, so you can compare it with your mileage claim.</p>
 
+      <Field label="Report month">{id => <input id={id} type="month" value={month} onChange={e => { if (e.target.value) setMonth(e.target.value); }} />}</Field>
+      <PeriodSettings month={month} />
+      <p className="muted small">Mileage: {fmtDate(mileagePeriod.from)} to {fmtDate(mileagePeriod.to)}</p>
       <section className="panel">
         <h2 className="panel-title">{fmtDate(period.from, { year: false })} to {fmtDate(period.to, { year: false })}</h2>
         <FuelComparison claimPence={claim.totalPence} fuelPence={sum.totalPence} fuelCount={sum.count} />
@@ -289,3 +298,4 @@ export function FuelScreen({ claimStartDay }) {
     </div>
   );
 }
+

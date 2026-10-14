@@ -1,20 +1,24 @@
 import { useMemo, useState } from 'react';
+import { currentMonth, reportPeriod } from '../periods.js';
 import { useStore } from '../store.js';
 import { buildReport, fuelSummary } from '../calc.js';
 import { Odometer, Segmented, Sheet } from '../ui.jsx';
 import { TripForm } from './TripForm.jsx';
 import { FuelForm } from './Fuel.jsx';
-import { claimPeriod, today, fmtDate, fmtMiles, fmtPounds } from '../util.js';
+import { today, fmtDate, fmtMiles, fmtPounds } from '../util.js';
 import { TripRow } from './Trips.jsx';
 
 export function LogScreen({ claimStartDay }) {
-  const { liveTrips, liveRates, liveFuel } = useStore();
+  const { liveTrips, liveRates, liveFuel, meta } = useStore();
   const [entry, setEntry] = useState('journey');
-  const period = claimPeriod(today(), claimStartDay);
+  const settings = meta.periodSettings?.days || {};
+  const month = currentMonth(today(), "mileage", settings);
+  const period = reportPeriod(month, "mileage", settings);
+  const fuelPeriod = reportPeriod(month, "fuel", settings);
   const report = useMemo(() => buildReport({ trips: liveTrips, rates: liveRates, ...period }),
     [liveTrips, liveRates, period.from, period.to]); // eslint-disable-line react-hooks/exhaustive-deps
   const [editing, setEditing] = useState(null);
-  const fuel = useMemo(() => fuelSummary({ fuel: liveFuel, ...period }), [liveFuel, period.from, period.to]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fuel = useMemo(() => fuelSummary({ fuel: liveFuel, ...fuelPeriod }), [liveFuel, fuelPeriod.from, fuelPeriod.to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const t = today();
   const todays = liveTrips.filter((x) => x.tripDate === t).sort((a, b) => (a.startOdometer ?? 0) - (b.startOdometer ?? 0));
@@ -28,7 +32,7 @@ export function LogScreen({ claimStartDay }) {
           <strong className="num">{fmtPounds(report.totalPence)}</strong> to claim for {fmtDate(period.from, { year: false })} to {fmtDate(period.to, { year: false })}
         </p>
         {fuel.count > 0 && (
-          <p className="dash-fuel">Fuel paid <strong className="num">{fmtPounds(fuel.totalPence)}</strong></p>
+          <p className="dash-fuel">Fuel paid <strong className="num">{fmtPounds(fuel.totalPence)}</strong> ({fmtDate(fuelPeriod.from)} to {fmtDate(fuelPeriod.to)})</p>
         )}
         {report.unratedMiles > 0 && (
           <p className="dash-warn">{fmtMiles(report.unratedMiles)} miles have no rate. Add one on the Rates tab.</p>
@@ -60,3 +64,4 @@ export function LogScreen({ claimStartDay }) {
     </div>
   );
 }
+

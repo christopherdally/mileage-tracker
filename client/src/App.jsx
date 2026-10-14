@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CutoffReminders } from './PeriodSettings.jsx';
 import { api, session, onSignedOut, OfflineError } from './api.js';
 import { store, useStore } from './store.js';
 import { startAutoSync, stopAutoSync, sync } from './sync.js';
@@ -103,6 +104,7 @@ function Shell({ user, setUser, signOut }) {
     <div className="app">
       <SyncBar status={status} pending={pending} />
       <main id="main">
+        <CutoffReminders />
         {page === 'log' && <LogScreen claimStartDay={claimStartDay} />}
         {page === 'trips' && <TripsScreen />}
         {page === 'fuel' && <FuelScreen claimStartDay={claimStartDay} />}
@@ -229,3 +231,4 @@ function FirstPassword({ user, onDone, onSignOut }) {
     </main>
   );
 }
+

@@ -236,6 +236,18 @@ api.post('/api/sync', async (req) => {
   const out = await withTx(async (c) => {
     // Serialise syncs per user so the pull cursor can never skip a row committed out of order.
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [me.id]);
+    const settings = req.body.periodSettings;
+    if (settings) {
+      if (!settings.days || typeof settings.days !== 'object' || Array.isArray(settings.days) || !Number.isFinite(Date.parse(settings.updatedAt)) || Object.entries(settings.days).length > 2400 ||
+          Object.entries(settings.days).some(([key, value]) => !/^(fuel|mileage):[0-9]{4}-(0[1-9]|1[0-2])$/.test(key) || !Number.isInteger(value) || value < 1 || value > 31)) {
+        throw new HttpError(400, 'Invalid monthly report dates');
+      }
+      await c.query(`INSERT INTO report_settings (user_id, days, updated_at) VALUES ($1,$2,$3)
+        ON CONFLICT (user_id) DO UPDATE SET days=EXCLUDED.days, updated_at=EXCLUDED.updated_at
+        WHERE report_settings.updated_at < EXCLUDED.updated_at`, [me.id, JSON.stringify(settings.days), settings.updatedAt]);
+    }
+    const prefs = await c.query('SELECT days, updated_at FROM report_settings WHERE user_id=$1', [me.id]);
+    const periodSettings = prefs.rows[0] ? { days: prefs.rows[0].days, updatedAt: new Date(prefs.rows[0].updated_at).toISOString() } : null;
     const { rows: [{ value: epoch }] } = await c.query("SELECT value FROM meta WHERE key='data_epoch'");
     const reset = req.body.epoch !== epoch;
     if (reset) cursor = 0;
@@ -295,7 +307,7 @@ api.post('/api/sync', async (req) => {
     const rates = await c.query('SELECT * FROM rate_periods WHERE user_id=$1 AND server_seq > $2 ORDER BY server_seq', [me.id, cursor]);
     const next = Math.max(cursor, ...[...trips.rows, ...rates.rows, ...fuel.rows].map((x) => Number(x.server_seq)));
     return {
-      epoch, reset, cursor: next,
+      epoch, reset, cursor: next, periodSettings,
       trips: trips.rows.map(tripOut), rates: rates.rows.map(rateOut), fuel: fuel.rows.map(fuelOut),
     };
   });
@@ -399,3 +411,4 @@ api.post('/api/backups/:id/restore', async (req) => {
     return { ok: true };
   });
 });
+
