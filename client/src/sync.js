@@ -35,7 +35,9 @@ async function syncOnce() {
     const dirtyFuel = [...store.fuel.values()].filter((f) => f.dirty).slice(0, Math.max(0, BATCH - dirtyRates.length - dirtyTrips.length));
     const sent = new Map([...dirtyRates, ...dirtyTrips, ...dirtyFuel].map((r) => [r.id, r.updatedAt]));
 
+    const sentSettings = store.meta.periodSettings;
     const res = await api('POST', '/sync', {
+      periodSettings: sentSettings?.dirty ? { days: sentSettings.days, updatedAt: sentSettings.updatedAt } : undefined,
       epoch: store.meta.epoch ?? null,
       cursor: store.meta.cursor ?? 0,
       rates: dirtyRates.map(strip),
@@ -43,6 +45,12 @@ async function syncOnce() {
       fuel: dirtyFuel.map(strip),
     });
 
+    if (res.periodSettings) {
+      const local = store.meta.periodSettings;
+      if (!local?.dirty || Date.parse(local.updatedAt) <= Date.parse(res.periodSettings.updatedAt)) {
+        await store.setMeta('periodSettings', { ...res.periodSettings, dirty: false });
+      }
+    }
     if (res.reset) {
       // Server data was restored from a backup (or this is a new device): drop the synced copy.
       const clean = (kind) => [...store[kind].values()].filter((r) => !r.dirty).map((r) => r.id);
@@ -71,7 +79,7 @@ async function syncOnce() {
     await store.setMeta('cursor', res.cursor);
 
     const stillDirty = [...store.rates.values(), ...store.trips.values(), ...store.fuel.values()].some((r) => r.dirty);
-    if (!stillDirty || sent.size === 0) break;
+    if (!store.meta.periodSettings?.dirty && (!stillDirty || sent.size === 0)) break;
   }
   await uploadReceipts();
   await store.setMeta('lastSync', new Date().toISOString());
@@ -140,3 +148,4 @@ export function stopAutoSync() {
 }
 function onOnline() { setStatus({ state: 'idle' }); sync(); }
 function onVisible() { if (document.visibilityState === 'visible') sync(); }
+

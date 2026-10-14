@@ -17,6 +17,12 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS report_settings (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  days JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+
 -- Per-user pence-per-mile rate periods. end_date NULL = still current.
 -- Added after the first release; safe on existing databases.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
@@ -96,3 +102,4 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT NOT NULL
 );
 INSERT INTO meta (key, value) VALUES ('data_epoch', gen_random_uuid()::text) ON CONFLICT (key) DO NOTHING;
+

@@ -83,6 +83,7 @@ export async function buildClaimPdf({ report, rates, user, fuel = null }) {
     ['Name', name],
     ['Vehicle', user.vehicle || 'Not recorded'],
     ['Prepared', longDate(today())],
+    ...(fuel?.from && fuel?.to ? [['Fuel period', `${longDate(fuel.from)} to ${longDate(fuel.to)}`]] : []),
   ];
   for (const [k, v] of meta) {
     text(k, M, 9.5, reg, C.muted);
@@ -318,3 +319,4 @@ export function claimFilename(report, user) {
   const who = (user.displayName || user.username).replace(/[^\w-]+/g, '-');
   return `mileage-claim_${who}_${report.from}_to_${report.to}.pdf`;
 }
+

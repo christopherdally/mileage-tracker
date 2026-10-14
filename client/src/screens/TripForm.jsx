@@ -1,3 +1,4 @@
+import { EntryPeriod } from '../PeriodSettings.jsx';
 import { useMemo, useState } from 'react';
 import { store, useStore } from '../store.js';
 import { syncSoon } from '../sync.js';
@@ -116,6 +117,7 @@ export function TripForm({ trip, onDone, compact = false }) {
 
   return (
     <form className={`trip-form ${compact ? 'compact' : ''}`} onSubmit={submit} noValidate>
+      <EntryPeriod date={date} kind="mileage" />
       <div className="row-2">
         <Field label="Date" error={errors.date}>
           {(id) => <input id={id} type="date" value={date} max="2100-12-31" onChange={(ev) => changeDate(ev.target.value)} required />}
@@ -178,3 +180,4 @@ export function TripForm({ trip, onDone, compact = false }) {
     </form>
   );
 }
+
