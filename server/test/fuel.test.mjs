@@ -17,15 +17,15 @@ async function call(method, path, body, token, raw) {
 }
 const uuid = () => crypto.randomUUID();
 
-let r = await call('POST', '/api/auth/login', { username: 'CDallyWales@gmail.com', password: PW });
-ok(r.s === 200 && r.j.user.username === 'cdallywales@gmail.com' && r.j.user.isAdmin, 'first admin is the email address (case-insensitive)');
+let r = await call('POST', '/api/auth/login', { username: 'Admin@Example.com', password: PW });
+ok(r.s === 200 && r.j.user.username === 'admin@example.com' && r.j.user.isAdmin, 'first admin is the email address (case-insensitive)');
 ok(r.j.user.mustChangePassword === true, 'first admin must change password');
 let tok = r.j.token;
 ok((await call('POST', '/api/auth/password', { currentPassword: PW, newPassword: PW }, tok)).s === 400, 'cannot "change" to the same password');
 r = await call('POST', '/api/auth/password', { currentPassword: PW, newPassword: 'my-own-secret-99' }, tok);
 ok(r.s === 200 && r.j.user.mustChangePassword === false, 'password changed, flag cleared');
 tok = r.j.token;
-ok((await call('POST', '/api/auth/login', { username: 'cdallywales@gmail.com', password: PW })).s === 401, 'initial password no longer works');
+ok((await call('POST', '/api/auth/login', { username: 'admin@example.com', password: PW })).s === 401, 'initial password no longer works');
 
 r = await call('POST', '/api/users', { username: 'jo.bloggs+work@example.co.uk', password: 'tempPass123' }, tok);
 ok(r.s === 201 && r.j.user.mustChangePassword === true, 'admin can create an email-address user; must change password');

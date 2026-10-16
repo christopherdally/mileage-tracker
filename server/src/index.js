@@ -61,7 +61,7 @@ const server = http.createServer((req, res) => {
 async function bootstrapAdmin() {
   const { rows } = await query('SELECT count(*)::int AS n FROM users');
   if (rows[0].n > 0) return;
-  const username = (process.env.ADMIN_USERNAME || 'cdallywales@gmail.com').trim().toLowerCase();
+  const username = (process.env.ADMIN_USERNAME || 'admin@example.com').trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD;
   if (!password || password.length < 8) {
     console.warn('No users exist yet. Set ADMIN_PASSWORD (8+ characters) to create the first admin.');

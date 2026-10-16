@@ -26,7 +26,7 @@ services:
     volumes:
       - backups:/backups
     ports:
-      - "${APP_PORT:-3001}:3001"
+      - "${APP_PORT:-3000}:3000"
 
   # Optional HTTPS with automatic certificates. Phones need HTTPS to install the app
   # and use it offline. Start with:  docker compose --profile https up -d

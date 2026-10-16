@@ -11,13 +11,21 @@ A self-hosted, mobile-first app for logging business mileage and producing month
 - **No sign-up.** Sign in with an email address (or a plain username). Admins create accounts, reset passwords, disable or delete users. Anyone given a password by someone else must choose their own at first sign-in.
 - **Backups** with `pg_dump` to the server, to S3 (or any S3-compatible storage), or both. Daily schedule, manual backups, download and one-click restore from the admin screen.
 
-## Deploying on Dokploy
+## Getting started
 
-See **[DOKPLOY.md](DOKPLOY.md)**: a Compose deployment (`docker-compose.dokploy.yml`, app + Postgres) or the `Dockerfile` with a Dokploy-managed database.
+Three ways to run it, from quickest to most "real deployment":
+
+1. **[Quick start (Docker)](#quick-start-docker)** below — one `docker compose up` on your own machine or server, Postgres included.
+2. **[Dokploy](DOKPLOY.md)** — point Dokploy at this repo for a managed deployment with HTTPS and backups.
+3. **[Development](#development)** — run the client and server directly with Node, without Docker.
 
 ## Quick start (Docker)
 
+Requires [Docker](https://docs.docker.com/get-docker/) and Docker Compose (bundled with Docker Desktop and modern Docker Engine installs).
+
 ```bash
+git clone <this-repository-url>
+cd mileage-tracker
 cp .env.example .env
 # Edit .env: set POSTGRES_PASSWORD, JWT_SECRET and ADMIN_PASSWORD at minimum
 openssl rand -hex 24      # good POSTGRES_PASSWORD
@@ -26,7 +34,33 @@ openssl rand -base64 48   # good JWT_SECRET
 docker compose up -d --build
 ```
 
-Open `http://<server>:3000` and sign in with `ADMIN_USERNAME` (default `cdallywales@gmail.com`) and `ADMIN_PASSWORD`. The first admin is created only when the database has no users, and is asked to choose a new password straight away.
+Open `http://<server>:3000` (or the `APP_PORT` you set) and sign in with `ADMIN_USERNAME` (default `admin@example.com`) and `ADMIN_PASSWORD`. The first admin is created only when the database has no users, and is asked to choose a new password straight away. Change `ADMIN_USERNAME` in `.env` before first start if you'd rather use your own address.
+
+See `.env.example` for every setting, with defaults and generator commands.
+
+### Environment variables
+
+All settings are read from `.env` (see `.env.example` for the full list with defaults and generator commands).
+
+| Variable | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `POSTGRES_PASSWORD` | yes | — | Password for the `mileage` Postgres user (Docker Compose only) |
+| `DATABASE_URL` | yes* | — | Full Postgres connection string (set automatically by `docker-compose.yml`; set it yourself when running the server directly) |
+| `JWT_SECRET` | yes | — | Signs session tokens. 32+ random characters |
+| `ADMIN_USERNAME` | no | `admin@example.com` | Username/email for the first account, created only when the database has no users |
+| `ADMIN_PASSWORD` | yes, first run only | — | Password for that first account (8+ characters). Not needed once a user exists |
+| `ADMIN_NAME` | no | `Administrator` | Display name for the first account |
+| `SESSION_DAYS` | no | `60` | How long a sign-in lasts |
+| `APP_PORT` | no | `3000` | Host port the app is published on (Docker Compose) |
+| `TRUST_PROXY` | no | `false` | Set `true` behind a reverse proxy (Caddy, nginx, Traefik, Dokploy) |
+| `TZ` | no | `Europe/London` | Timezone for backup scheduling and timestamps |
+| `DOMAIN` | HTTPS profile only | — | Public domain for the Caddy HTTPS profile |
+| `BACKUP_TARGET` | no | `local` | `local`, `s3` or `both` |
+| `BACKUP_TIME` | no | `02:00` | Daily backup time, or `off` |
+| `BACKUP_KEEP` | no | `30` | Backups kept per location |
+| `S3_BUCKET`, `S3_PREFIX`, `S3_REGION`, `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE`, `S3_SSE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | only if using S3 | — | S3 (or S3-compatible) backup storage |
+
+\* `docker-compose.yml` builds `DATABASE_URL` for you from `POSTGRES_PASSWORD`; it only needs setting by hand when running the server outside Docker (see [Development](#development)).
 
 ### HTTPS (needed on phones)
 
@@ -142,3 +176,20 @@ DOKPLOY.md         Dokploy deployment guide
 | POST | `/api/backups/:id/restore` | admin |
 
 There is intentionally no sign-up endpoint.
+
+## Troubleshooting
+
+- **Can't sign in / don't know the admin password:** see [Admin tasks](#admin-tasks) above to reset it from the command line.
+- **Site won't load after `docker compose up`:** check `docker compose logs app` and `docker compose logs db`. The app waits for Postgres to report healthy before starting.
+- **Phone won't install the app or work offline:** this needs HTTPS — see [HTTPS (needed on phones)](#https-needed-on-phones). Plain HTTP only works for browser testing.
+- **"Set POSTGRES_PASSWORD" / "Set JWT_SECRET" errors:** `.env` is missing or wasn't picked up. Confirm it's in the same directory as `docker-compose.yml` and re-run `docker compose up -d --build`.
+- **Backup/restore fails with a version mismatch:** `pg_dump`/`pg_restore` in the app image must be the same major version as your Postgres server (or newer). See the `PG_CLIENT_VERSION` build argument in [DOKPLOY.md](DOKPLOY.md).
+- **Still stuck:** open an issue with the relevant `docker compose logs` output (check it for secrets first).
+
+## Contributing
+
+Issues and pull requests are welcome. For anything non-trivial, please open an issue first to discuss the change. Run `npm test` in both `client/` and `server/` before submitting.
+
+## License
+
+[MIT](LICENSE)
