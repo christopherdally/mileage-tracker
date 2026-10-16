@@ -1,5 +1,7 @@
 # Mileage Tracker
 
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](CHANGELOG.md) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 A self-hosted, mobile-first app for logging business mileage and producing monthly claim PDFs.
 
 - **Installable phone app (PWA)** that works with no signal. Journeys are saved on the phone and sync when you're back online.
@@ -11,13 +13,36 @@ A self-hosted, mobile-first app for logging business mileage and producing month
 - **No sign-up.** Sign in with an email address (or a plain username). Admins create accounts, reset passwords, disable or delete users. Anyone given a password by someone else must choose their own at first sign-in.
 - **Backups** with `pg_dump` to the server, to S3 (or any S3-compatible storage), or both. Daily schedule, manual backups, download and one-click restore from the admin screen.
 
-## Deploying on Dokploy
+## Screenshots
 
-See **[DOKPLOY.md](DOKPLOY.md)**: a Compose deployment (`docker-compose.dokploy.yml`, app + Postgres) or the `Dockerfile` with a Dokploy-managed database.
+<table>
+<tr>
+<td><img src="docs/screenshots/log.png" width="200" alt="Log screen: today's claim total and a form to add a journey"><br><sub><b>Log</b> — add a journey or fuel entry, see the running claim total</sub></td>
+<td><img src="docs/screenshots/journeys.png" width="200" alt="Journeys screen: a month's list of logged journeys"><br><sub><b>Journeys</b> — every journey by month</sub></td>
+<td><img src="docs/screenshots/fuel.png" width="200" alt="Fuel screen: fuel paid compared with the mileage claim"><br><sub><b>Fuel</b> — fill-ups compared with the claim</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/rates.png" width="200" alt="Rates screen: pence-per-mile rates with start and end dates"><br><sub><b>Rates</b> — pence-per-mile rates over time</sub></td>
+<td><img src="docs/screenshots/report.png" width="200" alt="Report screen: claim worked out by rate period, compared with fuel paid"><br><sub><b>Report</b> — the claim worked out, ready to become a PDF</sub></td>
+<td><img src="docs/screenshots/settings.png" width="200" alt="Settings screen: sync status, profile, password, admin links and the app version"><br><sub><b>Settings</b> — sync, profile, admin, and the app version</sub></td>
+</tr>
+</table>
+
+## Getting started
+
+Three ways to run it, from quickest to most "real deployment":
+
+1. **[Quick start (Docker)](#quick-start-docker)** below — one `docker compose up` on your own machine or server, Postgres included.
+2. **[Dokploy](DOKPLOY.md)** — point Dokploy at this repo for a managed deployment with HTTPS and backups.
+3. **[Development](#development)** — run the client and server directly with Node, without Docker.
 
 ## Quick start (Docker)
 
+Requires [Docker](https://docs.docker.com/get-docker/) and Docker Compose (bundled with Docker Desktop and modern Docker Engine installs).
+
 ```bash
+git clone <this-repository-url>
+cd mileage-tracker
 cp .env.example .env
 # Edit .env: set POSTGRES_PASSWORD, JWT_SECRET and ADMIN_PASSWORD at minimum
 openssl rand -hex 24      # good POSTGRES_PASSWORD
@@ -26,7 +51,33 @@ openssl rand -base64 48   # good JWT_SECRET
 docker compose up -d --build
 ```
 
-Open `http://<server>:3000` and sign in with `ADMIN_USERNAME` (default `cdallywales@gmail.com`) and `ADMIN_PASSWORD`. The first admin is created only when the database has no users, and is asked to choose a new password straight away.
+Open `http://<server>:3000` (or the `APP_PORT` you set) and sign in with `ADMIN_USERNAME` (default `admin@example.com`) and `ADMIN_PASSWORD`. The first admin is created only when the database has no users, and is asked to choose a new password straight away. Change `ADMIN_USERNAME` in `.env` before first start if you'd rather use your own address.
+
+See `.env.example` for every setting, with defaults and generator commands.
+
+### Environment variables
+
+All settings are read from `.env` (see `.env.example` for the full list with defaults and generator commands).
+
+| Variable | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `POSTGRES_PASSWORD` | yes | — | Password for the `mileage` Postgres user (Docker Compose only) |
+| `DATABASE_URL` | yes* | — | Full Postgres connection string (set automatically by `docker-compose.yml`; set it yourself when running the server directly) |
+| `JWT_SECRET` | yes | — | Signs session tokens. 32+ random characters |
+| `ADMIN_USERNAME` | no | `admin@example.com` | Username/email for the first account, created only when the database has no users |
+| `ADMIN_PASSWORD` | yes, first run only | — | Password for that first account (8+ characters). Not needed once a user exists |
+| `ADMIN_NAME` | no | `Administrator` | Display name for the first account |
+| `SESSION_DAYS` | no | `60` | How long a sign-in lasts |
+| `APP_PORT` | no | `3000` | Host port the app is published on (Docker Compose) |
+| `TRUST_PROXY` | no | `false` | Set `true` behind a reverse proxy (Caddy, nginx, Traefik, Dokploy) |
+| `TZ` | no | `Europe/London` | Timezone for backup scheduling and timestamps |
+| `DOMAIN` | HTTPS profile only | — | Public domain for the Caddy HTTPS profile |
+| `BACKUP_TARGET` | no | `local` | `local`, `s3` or `both` |
+| `BACKUP_TIME` | no | `02:00` | Daily backup time, or `off` |
+| `BACKUP_KEEP` | no | `30` | Backups kept per location |
+| `S3_BUCKET`, `S3_PREFIX`, `S3_REGION`, `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE`, `S3_SSE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | only if using S3 | — | S3 (or S3-compatible) backup storage |
+
+\* `docker-compose.yml` builds `DATABASE_URL` for you from `POSTGRES_PASSWORD`; it only needs setting by hand when running the server outside Docker (see [Development](#development)).
 
 ### HTTPS (needed on phones)
 
@@ -49,7 +100,7 @@ If you already run nginx or Traefik, proxy to the `app` container on port 3000 i
 | Fuel | Fill-ups with receipt photos, and fuel paid compared with the claim for this period. |
 | Rates | Your pence-per-mile rates with start and end dates. Warns about overlaps. |
 | Report | Choose dates, see the workings, download or share the PDF. Set which day your claim periods start. |
-| Settings | Sync status, your name and vehicle (shown on the PDF), password, and for admins: Users and Backups. |
+| Settings | Sync status, your name and vehicle (shown on the PDF), password, and for admins: Users and Backups. The app version is shown at the bottom of this screen. |
 
 **How the amount is worked out:** journeys are grouped by the rate that applies on their date (or their own custom rate). Each group is *total miles × pence per mile*, rounded to the penny once. The claim is the sum of the groups. Journeys on dates with no rate are listed but not claimed, and flagged in red.
 
@@ -142,3 +193,32 @@ DOKPLOY.md         Dokploy deployment guide
 | POST | `/api/backups/:id/restore` | admin |
 
 There is intentionally no sign-up endpoint.
+
+## Troubleshooting
+
+- **Which version am I running?** It's shown at the bottom of Settings in the app, and `GET /api/health` returns `{"ok":true,"version":"1.0.0"}`. Useful when reporting an issue.
+- **Can't sign in / don't know the admin password:** see [Admin tasks](#admin-tasks) above to reset it from the command line.
+- **Site won't load after `docker compose up`:** check `docker compose logs app` and `docker compose logs db`. The app waits for Postgres to report healthy before starting.
+- **Phone won't install the app or work offline:** this needs HTTPS — see [HTTPS (needed on phones)](#https-needed-on-phones). Plain HTTP only works for browser testing.
+- **"Set POSTGRES_PASSWORD" / "Set JWT_SECRET" errors:** `.env` is missing or wasn't picked up. Confirm it's in the same directory as `docker-compose.yml` and re-run `docker compose up -d --build`.
+- **Backup/restore fails with a version mismatch:** `pg_dump`/`pg_restore` in the app image must be the same major version as your Postgres server (or newer). See the `PG_CLIENT_VERSION` build argument in [DOKPLOY.md](DOKPLOY.md).
+- **Still stuck:** open an issue with the relevant `docker compose logs` output (check it for secrets first).
+
+## Feature requests
+
+Want the app to do something it doesn't yet? [Open a feature request issue](https://github.com/christopherdally/mileage-tracker/issues/new?template=feature_request.md) describing what you're trying to do and what's getting in the way. There's no backlog of user requests yet — this is a new public project — so early requests have an outsized say in what gets built next.
+
+Before filing one, it's worth a quick look at **[ROADMAP.md](ROADMAP.md)** in case it's already listed. Requests that gain traction (reactions, duplicates, comments) get pulled into the roadmap's "Requested by users" section so they're easy to track.
+
+## Contributing
+
+Issues and pull requests are welcome. For anything non-trivial, please open an issue first to discuss the change. Run `npm test` in both `client/` and `server/` before submitting. See [ROADMAP.md](ROADMAP.md) for ideas that aren't built yet.
+
+## Changelog and roadmap
+
+- **[CHANGELOG.md](CHANGELOG.md)** — notable changes by version.
+- **[ROADMAP.md](ROADMAP.md)** — planned and suggested future work, including what's been requested by users.
+
+## License
+
+[MIT](LICENSE)

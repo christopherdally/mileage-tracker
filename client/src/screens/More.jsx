@@ -111,6 +111,15 @@ export function MoreScreen({ user, onUser, onSignOut, go }) {
       )}
 
       <button type="button" className="btn btn-danger-quiet btn-block" onClick={() => onSignOut(pending)}>Sign out</button>
+
+      <p className="muted small about-version">
+        Mileage Tracker v{__APP_VERSION__}
+        <br />
+        © {new Date().getFullYear()} Christopher Dally /{' '}
+        <a href="https://lifespansoftware.com/" target="_blank" rel="noopener">LifespanSoftware</a>
+        {' · '}
+        <a href="https://github.com/christopherdally/mileage-tracker" target="_blank" rel="noopener">GitHub</a>
+      </p>
     </div>
   );
 }

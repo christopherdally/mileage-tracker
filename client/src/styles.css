@@ -309,3 +309,4 @@ main#main { max-width: 640px; margin: 0 auto; }
 .compare-diff { border-bottom: 0 !important; font-weight: 700; }
 .compare-diff strong { color: var(--blue); font-size: 1.35rem; }
 .compare-diff.neg strong { color: var(--red); }
+.about-version { text-align: center; padding: 8px 0 24px; }

@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 const root = path.dirname(new URL(import.meta.url).pathname);
 const out = path.join(root, 'dist');
 const watch = process.argv.includes('--dev');
+const appVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(path.join(out, 'assets'), { recursive: true });
@@ -25,7 +26,10 @@ const result = await esbuild.build({
   entryNames: '[name].[hash]',
   assetNames: '[name].[hash]',
   metafile: true,
-  define: { 'process.env.NODE_ENV': JSON.stringify(watch ? 'development' : 'production') },
+  define: {
+    'process.env.NODE_ENV': JSON.stringify(watch ? 'development' : 'production'),
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   logLevel: 'info',
 });
 

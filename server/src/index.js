@@ -1,5 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { migrate, query } from './db.js';
 import { HttpError, readJson, readRaw, sendJson, serveStatic } from './http.js';
 import { hashPassword } from './auth.js';
@@ -8,6 +10,8 @@ import { startBackupSchedule } from './backup.js';
 
 const CLIENT_DIR = path.resolve(process.env.CLIENT_DIR || 'public');
 const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
+const PKG_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
+const APP_VERSION = JSON.parse(fs.readFileSync(PKG_PATH, 'utf8')).version;
 
 function clientIp(req) {
   if (TRUST_PROXY) {
@@ -23,7 +27,7 @@ async function handle(req, res) {
 
   if (pathname === '/api/health') {
     await query('SELECT 1');
-    return sendJson(res, 200, { ok: true });
+    return sendJson(res, 200, { ok: true, version: APP_VERSION });
   }
 
   if (pathname.startsWith('/api/')) {
@@ -61,7 +65,7 @@ const server = http.createServer((req, res) => {
 async function bootstrapAdmin() {
   const { rows } = await query('SELECT count(*)::int AS n FROM users');
   if (rows[0].n > 0) return;
-  const username = (process.env.ADMIN_USERNAME || 'cdallywales@gmail.com').trim().toLowerCase();
+  const username = (process.env.ADMIN_USERNAME || 'admin@example.com').trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD;
   if (!password || password.length < 8) {
     console.warn('No users exist yet. Set ADMIN_PASSWORD (8+ characters) to create the first admin.');
@@ -93,7 +97,7 @@ async function main() {
   tidyReceipts();
   setInterval(tidyReceipts, 24 * 3600 * 1000);
   const port = Number(process.env.PORT || 3000);
-  server.listen(port, () => console.log(`Mileage Tracker listening on port ${port}`));
+  server.listen(port, () => console.log(`Mileage Tracker v${APP_VERSION} listening on port ${port}`));
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

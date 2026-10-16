@@ -34,7 +34,7 @@ services:
     environment:
       DATABASE_URL: postgresql://mileage:${POSTGRES_PASSWORD}@db:5432/mileage
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-cdallywales@gmail.com}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ADMIN_NAME: ${ADMIN_NAME:-}
       TRUST_PROXY: "true"

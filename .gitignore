@@ -1,0 +1,14 @@
+node_modules/
+.env
+*.local
+
+# Build output
+/client/dist/
+/server/public/
+
+# Local data
+/backups/
+*.dump
+
+# Editor/OS
+.DS_Store
