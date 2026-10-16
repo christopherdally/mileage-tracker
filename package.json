@@ -1,0 +1,7 @@
+{
+  "name": "mileage-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A self-hosted, mobile-first app for logging business mileage and producing monthly claim PDFs.",
+  "license": "MIT"
+}

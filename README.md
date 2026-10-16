@@ -1,5 +1,7 @@
 # Mileage Tracker
 
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](CHANGELOG.md) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 A self-hosted, mobile-first app for logging business mileage and producing monthly claim PDFs.
 
 - **Installable phone app (PWA)** that works with no signal. Journeys are saved on the phone and sync when you're back online.
@@ -188,7 +190,12 @@ There is intentionally no sign-up endpoint.
 
 ## Contributing
 
-Issues and pull requests are welcome. For anything non-trivial, please open an issue first to discuss the change. Run `npm test` in both `client/` and `server/` before submitting.
+Issues and pull requests are welcome. For anything non-trivial, please open an issue first to discuss the change. Run `npm test` in both `client/` and `server/` before submitting. See [ROADMAP.md](ROADMAP.md) for ideas that aren't built yet.
+
+## Changelog and roadmap
+
+- **[CHANGELOG.md](CHANGELOG.md)** — notable changes by version.
+- **[ROADMAP.md](ROADMAP.md)** — planned and suggested future work.
 
 ## License
 
