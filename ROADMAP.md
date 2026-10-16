@@ -2,8 +2,22 @@
 
 Ideas for where the project could go next. Nothing here is committed or
 scheduled — it's a backlog of suggestions, some gathered by scanning the
-current codebase for gaps. Open an issue if you'd like to pick one up or
-propose something new.
+current codebase for gaps, others requested by people using the app. Open
+an issue if you'd like to pick one up or propose something new.
+
+## Requested by users
+
+This section tracks feature requests that came from people using the app,
+as opposed to the rest of this file, which is ideas gathered by scanning
+the codebase. There's nothing here yet — this is a new public project and
+no one has filed a feature request issue so far.
+
+**Have an idea?** [Open a feature request](https://github.com/christopherdally/mileage-tracker/issues/new?template=feature_request.md)
+describing what you're trying to do and what's in the way. Requests that
+get traction (reactions, duplicates, follow-up comments) get listed here
+with a link back to the issue, so this section becomes a running record of
+what people have actually asked for — not just what seemed like a good
+idea while reading the code.
 
 ## Accounts & security
 
@@ -74,5 +88,5 @@ propose something new.
 
 ---
 
-Have a suggestion not listed here? Open an issue — see
-[Contributing](README.md#contributing) in the README.
+Have a suggestion not listed here? [Open a feature request](https://github.com/christopherdally/mileage-tracker/issues/new?template=feature_request.md) —
+see [Contributing](README.md#contributing) in the README.

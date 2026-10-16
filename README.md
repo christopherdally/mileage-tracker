@@ -204,6 +204,12 @@ There is intentionally no sign-up endpoint.
 - **Backup/restore fails with a version mismatch:** `pg_dump`/`pg_restore` in the app image must be the same major version as your Postgres server (or newer). See the `PG_CLIENT_VERSION` build argument in [DOKPLOY.md](DOKPLOY.md).
 - **Still stuck:** open an issue with the relevant `docker compose logs` output (check it for secrets first).
 
+## Feature requests
+
+Want the app to do something it doesn't yet? [Open a feature request issue](https://github.com/christopherdally/mileage-tracker/issues/new?template=feature_request.md) describing what you're trying to do and what's getting in the way. There's no backlog of user requests yet — this is a new public project — so early requests have an outsized say in what gets built next.
+
+Before filing one, it's worth a quick look at **[ROADMAP.md](ROADMAP.md)** in case it's already listed. Requests that gain traction (reactions, duplicates, comments) get pulled into the roadmap's "Requested by users" section so they're easy to track.
+
 ## Contributing
 
 Issues and pull requests are welcome. For anything non-trivial, please open an issue first to discuss the change. Run `npm test` in both `client/` and `server/` before submitting. See [ROADMAP.md](ROADMAP.md) for ideas that aren't built yet.
@@ -211,7 +217,7 @@ Issues and pull requests are welcome. For anything non-trivial, please open an i
 ## Changelog and roadmap
 
 - **[CHANGELOG.md](CHANGELOG.md)** — notable changes by version.
-- **[ROADMAP.md](ROADMAP.md)** — planned and suggested future work.
+- **[ROADMAP.md](ROADMAP.md)** — planned and suggested future work, including what's been requested by users.
 
 ## License
 

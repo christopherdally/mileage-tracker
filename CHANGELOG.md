@@ -15,6 +15,9 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - Screenshots of the Log, Journeys, Fuel, Rates, Report and Settings screens
   in the README.
 - `package.json`, `CHANGELOG.md` and `ROADMAP.md` at the project root.
+- A feature request issue template (`.github/ISSUE_TEMPLATE/feature_request.md`),
+  a "Feature requests" section in the README, and a "Requested by users"
+  section in `ROADMAP.md` to track what people actually ask for.
 
 ### Changed
 
