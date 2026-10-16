@@ -13,6 +13,21 @@ A self-hosted, mobile-first app for logging business mileage and producing month
 - **No sign-up.** Sign in with an email address (or a plain username). Admins create accounts, reset passwords, disable or delete users. Anyone given a password by someone else must choose their own at first sign-in.
 - **Backups** with `pg_dump` to the server, to S3 (or any S3-compatible storage), or both. Daily schedule, manual backups, download and one-click restore from the admin screen.
 
+## Screenshots
+
+<table>
+<tr>
+<td><img src="docs/screenshots/log.png" width="200" alt="Log screen: today's claim total and a form to add a journey"><br><sub><b>Log</b> — add a journey or fuel entry, see the running claim total</sub></td>
+<td><img src="docs/screenshots/journeys.png" width="200" alt="Journeys screen: a month's list of logged journeys"><br><sub><b>Journeys</b> — every journey by month</sub></td>
+<td><img src="docs/screenshots/fuel.png" width="200" alt="Fuel screen: fuel paid compared with the mileage claim"><br><sub><b>Fuel</b> — fill-ups compared with the claim</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/rates.png" width="200" alt="Rates screen: pence-per-mile rates with start and end dates"><br><sub><b>Rates</b> — pence-per-mile rates over time</sub></td>
+<td><img src="docs/screenshots/report.png" width="200" alt="Report screen: claim worked out by rate period, compared with fuel paid"><br><sub><b>Report</b> — the claim worked out, ready to become a PDF</sub></td>
+<td><img src="docs/screenshots/settings.png" width="200" alt="Settings screen: sync status, profile, password, admin links and the app version"><br><sub><b>Settings</b> — sync, profile, admin, and the app version</sub></td>
+</tr>
+</table>
+
 ## Getting started
 
 Three ways to run it, from quickest to most "real deployment":
@@ -85,7 +100,7 @@ If you already run nginx or Traefik, proxy to the `app` container on port 3000 i
 | Fuel | Fill-ups with receipt photos, and fuel paid compared with the claim for this period. |
 | Rates | Your pence-per-mile rates with start and end dates. Warns about overlaps. |
 | Report | Choose dates, see the workings, download or share the PDF. Set which day your claim periods start. |
-| Settings | Sync status, your name and vehicle (shown on the PDF), password, and for admins: Users and Backups. |
+| Settings | Sync status, your name and vehicle (shown on the PDF), password, and for admins: Users and Backups. The app version is shown at the bottom of this screen. |
 
 **How the amount is worked out:** journeys are grouped by the rate that applies on their date (or their own custom rate). Each group is *total miles × pence per mile*, rounded to the penny once. The claim is the sum of the groups. Journeys on dates with no rate are listed but not claimed, and flagged in red.
 
@@ -181,6 +196,7 @@ There is intentionally no sign-up endpoint.
 
 ## Troubleshooting
 
+- **Which version am I running?** It's shown at the bottom of Settings in the app, and `GET /api/health` returns `{"ok":true,"version":"1.0.0"}`. Useful when reporting an issue.
 - **Can't sign in / don't know the admin password:** see [Admin tasks](#admin-tasks) above to reset it from the command line.
 - **Site won't load after `docker compose up`:** check `docker compose logs app` and `docker compose logs db`. The app waits for Postgres to report healthy before starting.
 - **Phone won't install the app or work offline:** this needs HTTPS — see [HTTPS (needed on phones)](#https-needed-on-phones). Plain HTTP only works for browser testing.

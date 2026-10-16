@@ -111,6 +111,8 @@ export function MoreScreen({ user, onUser, onSignOut, go }) {
       )}
 
       <button type="button" className="btn btn-danger-quiet btn-block" onClick={() => onSignOut(pending)}>Sign out</button>
+
+      <p className="muted small about-version">Mileage Tracker v{__APP_VERSION__}</p>
     </div>
   );
 }

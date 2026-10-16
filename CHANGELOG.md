@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The running app version is now shown at the bottom of Settings, and
+  returned by `GET /api/health` (`{"ok":true,"version":"1.0.0"}`), so it's
+  easy to tell which release is deployed.
+- Screenshots of the Log, Journeys, Fuel, Rates, Report and Settings screens
+  in the README.
+- `package.json`, `CHANGELOG.md` and `ROADMAP.md` at the project root.
+
 ### Changed
 
 - Documentation overhaul for public release: expanded README (getting-started
