@@ -66,3 +66,4 @@ r = await call('POST', '/api/sync', { epoch, cursor: 0 }, tok);
 ok(r.j.fuel[0].litres === 61.2 && r.j.fuel[0].description === 'Tesco Extra, Cardiff', 'second device pulls fuel');
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');
+process.exitCode = fails ? 1 : 0;

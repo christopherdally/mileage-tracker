@@ -7,7 +7,32 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Multiple vehicles per user. Settings has a list of vehicles; with two or
+  more, journeys and fuel entries get a Vehicle picker (defaulting to the one
+  used last), the start reading carries on from that vehicle's last journey,
+  and a report can cover all vehicles or one. A PDF that mixes vehicles says
+  which was used for each entry and adds a miles-by-vehicle table. The old
+  single free-text vehicle becomes each user's first vehicle and their
+  existing entries are attached to it the first time the server starts.
+- CSV export of the journeys and fuel behind a report, from the Report tab.
+- Continuous integration (GitHub Actions): client unit tests and build, API
+  tests against PostgreSQL, and a browser test of the whole app including the
+  receipt scanner. `npm test` now works in `server/`, and `e2e/` holds the
+  browser test.
+
+### Changed
+
+- Admins set a vehicle only when creating a user; after that each person
+  manages their own vehicles in Settings.
+- Restoring a backup re-applies the schema, so a backup taken by an older
+  version works straight away.
+
 ### Fixed
+
+- On the Fuel tab, closing the scan review or a receipt preview also closed
+  the fuel form underneath and discarded what had been entered.
 
 - Receipt scanning never started: the scanner library was imported in a way
   the bundle didn't support, and its worker, WASM core and language data were
