@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Receipt scanning never started: the scanner library was imported in a way
+  the bundle didn't support, and its worker, WASM core and language data were
+  fetched from a CDN that the app's Content-Security-Policy blocks. The
+  scanner is now bundled and served by the app itself.
+- Litres are now read from lines that also carry a unit price, such as
+  `42.31 LITRES @ 139.9 P/L`.
+
 ## [1.0.0] - 2026-10-16
 
 First tagged release.

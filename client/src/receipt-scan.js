@@ -1,8 +1,11 @@
+import { createWorker } from 'tesseract.js';
 import { parseReceiptText } from './receipt-text.js';
+
+// The worker, WASM core and English data are copied here by build.mjs so nothing is fetched from a CDN.
+const OCR_PATH = new URL(__TESSERACT_PATH__, location.origin).href;
 
 export async function scanReceipt(blob, onProgress, signal) {
   if (!blob.type.startsWith('image/')) throw new Error('Choose a receipt photo. PDF receipts can still be attached manually.');
-  const { createWorker } = await import('tesseract.js');
   if (signal?.aborted) throw new Error('Scan cancelled');
   let worker;
   let finished = false;
@@ -16,7 +19,10 @@ export async function scanReceipt(blob, onProgress, signal) {
   try {
     const work = (async () => {
       worker = await createWorker('eng', 1, {
-        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/worker.min.js',
+        workerPath: `${OCR_PATH}/worker.min.js`,
+        corePath: OCR_PATH,
+        langPath: OCR_PATH,
+        workerBlobURL: false,
         logger: m => onProgress?.(m.status === 'recognizing text' ? `Reading receipt: ${Math.round((m.progress || 0) * 100)}%` : 'Preparing receipt scanner…'),
       });
       if (finished || signal?.aborted) { await worker.terminate(); throw new Error('Scan cancelled'); }

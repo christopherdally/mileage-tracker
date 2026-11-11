@@ -183,7 +183,7 @@ export function FuelForm({ purchase, onDone }) {
     <form onSubmit={submit} noValidate>
       <section className="panel">
         <h2 className="panel-title">Scan a paid fuel receipt</h2>
-        <p className="field-hint">Take a photo or upload a picture to read the date, amount paid, litres and retailer. Review the suggestions before using them. You can edit every field. Internet is needed to load the scanner; text recognition runs on your device.</p>
+        <p className="field-hint">Take a photo or upload a picture to read the date, amount paid, litres and retailer. Review the suggestions before using them. You can edit every field. The scanner downloads from this app the first time you use it (about 7 MB); text recognition runs on your device.</p>
         <div className="btn-row wrap">
           <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => scanCameraRef.current?.click()}>Scan with camera</button>
           <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => scanRef.current?.click()}>Scan uploaded photo</button>
