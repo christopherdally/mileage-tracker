@@ -11,9 +11,14 @@ const SUITES = [
   { file: 'api.test.mjs', db: 'mileage_test_api', port: 3181, env: admin },
   { file: 'fuel.test.mjs', db: 'mileage_test_fuel', port: 3182, env: { ADMIN_PASSWORD: 'first-admin-pass' } },
   { file: 'vehicles.test.mjs', db: 'mileage_test_vehicles', port: 3183, env: admin },
+  {
+    file: 'security.test.mjs', db: 'mileage_test_security', port: 3184,
+    env: { ADMIN_PASSWORD: 'first-admin-pass', APP_URL: 'http://127.0.0.1:3184', SMTP_HOST: '127.0.0.1', SMTP_PORT: '3194' },
+  },
 ];
 
 let failed = await run(process.execPath, [path.join(here, 'report-upload.test.mjs')]);
+failed += await run(process.execPath, [path.join(here, 'totp.test.mjs')]);
 for (const suite of SUITES) {
   console.log(`\n── ${suite.file} ──`);
   try {

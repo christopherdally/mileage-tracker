@@ -4,6 +4,7 @@ import { sync, syncSoon, syncStatus, onSyncStatus } from '../sync.js';
 import { api, session, OfflineError } from '../api.js';
 import { Field, Sheet, useToast } from '../ui.jsx';
 import { uuid } from '../util.js';
+import { TwoStepPanel } from '../TwoStep.jsx';
 
 export function useSyncStatus() {
   const [s, setS] = useState(syncStatus());
@@ -175,12 +176,15 @@ export function MoreScreen({ user, onUser, onSignOut, go }) {
         </form>
       </section>
 
+      <TwoStepPanel user={user} onUser={onUser} />
+
       {user.isAdmin && (
         <section className="panel">
           <h2 className="panel-title">Administration</h2>
           <nav className="link-list">
             <button type="button" onClick={() => go('users')}><span>Users</span><span className="muted">Add people, reset passwords</span></button>
             <button type="button" onClick={() => go('backups')}><span>Backups</span><span className="muted">Back up and restore the database</span></button>
+            <button type="button" onClick={() => go('activity')}><span>Activity log</span><span className="muted">Who changed accounts and backups, and when</span></button>
           </nav>
         </section>
       )}

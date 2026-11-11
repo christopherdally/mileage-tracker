@@ -17,7 +17,7 @@ export const session = {
 };
 
 export class ApiError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
+  constructor(status, message, data = null) { super(message); this.status = status; this.data = data; }
 }
 
 /** Thrown when there's no connection; callers treat it as "try again later", not as a failure. */
@@ -46,7 +46,7 @@ export async function api(method, path, body) {
   let data = null;
   try { data = await res.json(); } catch { /* empty or non-JSON body */ }
   if (res.status === 401 && path !== '/auth/login') listeners.forEach((fn) => fn());
-  if (!res.ok) throw new ApiError(res.status, data?.error || `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data);
   return data;
 }
 

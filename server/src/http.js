@@ -149,17 +149,3 @@ export function sendFile(res, file, downloadName) {
     s.pipe(res);
   });
 }
-
-/** Fixed-window rate limiter keyed by client IP. */
-export function rateLimiter({ windowMs, limit }) {
-  const hits = new Map();
-  return (key) => {
-    const now = Date.now();
-    let h = hits.get(key);
-    if (!h || h.reset < now) h = { count: 0, reset: now + windowMs };
-    h.count++;
-    hits.set(key, h);
-    if (hits.size > 10000) for (const [k, v] of hits) if (v.reset < now) hits.delete(k);
-    if (h.count > limit) throw new HttpError(429, 'Too many attempts. Try again in a few minutes.');
-  };
-}

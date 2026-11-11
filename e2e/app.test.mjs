@@ -1,19 +1,25 @@
-// Drives the real app in a browser: sign in, vehicles, journeys, receipt scan, report exports, second device.
-// Needs a server on an EMPTY database with ADMIN_PASSWORD set and ADMIN_USERNAME unset (run.mjs does this):
-//   BASE=http://localhost:3000 ADMIN_PASSWORD=... node e2e/app.test.mjs
+// Drives the real app in a browser: sign in, vehicles, journeys, receipt scan, report exports, second device,
+// two-step sign-in, password reset by email and the activity log.
+// Needs a server on an EMPTY database with ADMIN_PASSWORD, APP_URL, SMTP_HOST=127.0.0.1 and SMTP_PORT set
+// and ADMIN_USERNAME unset (run.mjs does this):
+//   BASE=http://localhost:3000 ADMIN_PASSWORD=... SMTP_PORT=... node e2e/app.test.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import { startSmtpSink } from '../server/test/smtp-sink.mjs';
+import { codeAt, currentStep } from '../server/src/totp.js';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 const BASE = process.env.BASE || 'http://localhost:3000';
 const FIRST_PW = process.env.ADMIN_PASSWORD;
 const PW = 'my-own-secret-99';
+const NEW_PW = 'after-the-reset-7';
 const FOCUS = 'Ford Focus AB12 CDE';
 const VAN = 'Transit van XY70 ZZZ';
 
 const step = (name) => console.log(`PASS ${name}`);
 const browser = await chromium.launch();
+const mail = await startSmtpSink(Number(process.env.SMTP_PORT));
 const problems = [];
 const pages = [];
 
@@ -23,7 +29,8 @@ async function newDevice() {
   page.setDefaultTimeout(15000);
   pages.push(page);
   // Anything the browser refuses (e.g. under the Content-Security-Policy) or the app throws fails the run.
-  page.on('console', (m) => { if (m.type() === 'error' && !/status of 401/.test(m.text())) problems.push(m.text()); });
+  // (A refused request is logged by the browser too; wrong passwords and codes are part of the test.)
+  page.on('console', (m) => { if (m.type() === 'error' && !/the server responded with a status of 40[01] /.test(m.text())) problems.push(m.text()); });
   page.on('pageerror', (e) => problems.push(e.message));
   // Nothing may be fetched from another origin.
   await context.route((url) => url.origin !== new URL(BASE).origin, (route) => { problems.push(`external request: ${route.request().url()}`); route.abort(); });
@@ -198,6 +205,72 @@ try {
   await page.locator('.logbook li').filter({ hasText: 'Delivery, Bristol' }).filter({ hasText: VAN }).waitFor();
   step('second device syncs vehicles, journeys and fuel');
 
+  // ── Two-step sign-in ──
+  await tab(page, 'Settings');
+  await page.getByRole('button', { name: 'Set up two-step sign-in' }).click();
+  const setup = page.locator('dialog[open]');
+  await setup.getByRole('img', { name: 'QR code for your authenticator app' }).waitFor();
+  const secret = (await setup.getByTestId('totp-secret').textContent()).replace(/\s/g, '');
+  await setup.getByLabel('Code from the app').fill('000000');
+  await setup.getByRole('button', { name: 'Turn on' }).click();
+  await setup.getByText("That code isn't right").waitFor();
+  const usedStep = currentStep();
+  await setup.getByLabel('Code from the app').fill(codeAt(secret, usedStep));
+  await setup.getByRole('button', { name: 'Turn on' }).click();
+  await setup.locator('.codes li').first().waitFor();
+  const recovery = await setup.locator('.codes li').allTextContents();
+  assert.equal(recovery.length, 10);
+  await setup.getByRole('button', { name: "I've saved them" }).click();
+  await page.getByText('On. Signing in needs your password and a code').waitFor();
+
+  const laptop = await newDevice();
+  await signIn(laptop, PW);
+  const codeBox = laptop.getByLabel('Code from your authenticator app');
+  await codeBox.fill('123456');
+  await laptop.getByRole('button', { name: 'Sign in' }).click();
+  await laptop.getByText("That code isn't right").waitFor();
+  await codeBox.fill(codeAt(secret, usedStep + 1));
+  await laptop.getByRole('button', { name: 'Sign in' }).click();
+  await laptop.getByRole('navigation', { name: 'Main' }).waitFor();
+  step('two-step sign-in set up and used on another device');
+
+  // ── Forgotten password: reset link by email, then sign in with a recovery code ──
+  const tablet = await newDevice();
+  await tablet.goto(BASE);
+  await tablet.getByRole('button', { name: 'Forgot your password?' }).click();
+  await tablet.getByLabel('Email address').fill('admin@example.com');
+  await tablet.getByRole('button', { name: 'Send reset link' }).click();
+  await tablet.getByText('a link to choose a new password is on its way').waitFor();
+  const email = await mail.next();
+  assert.equal(email.to, 'admin@example.com');
+  const link = /http:\/\/\S+#reset\?token=[\w-]+/.exec(email.text)[0];
+  await tablet.goto(link);
+  await tablet.getByLabel('New password', { exact: true }).fill(NEW_PW);
+  await tablet.getByLabel('New password again').fill(NEW_PW);
+  await tablet.getByRole('button', { name: 'Save password' }).click();
+  await tablet.getByText('Your password has been changed').waitFor();
+  await tablet.getByRole('button', { name: 'Sign in' }).click();
+  await tablet.getByLabel('Email or username').fill('admin@example.com');
+  await tablet.getByLabel('Password').fill(NEW_PW);
+  await tablet.getByRole('button', { name: 'Sign in' }).click();
+  await tablet.getByLabel('Code from your authenticator app').fill(recovery[0]);
+  await tablet.getByRole('button', { name: 'Sign in' }).click();
+  await tablet.getByRole('navigation', { name: 'Main' }).waitFor();
+  // The reset signed the other devices out.
+  await tab(laptop, 'Settings');
+  await laptop.getByRole('button', { name: 'Sync now' }).click();
+  await laptop.getByText('Your session ended').waitFor();
+  step('password reset by email, then sign-in with a recovery code');
+
+  // ── Activity log ──
+  await tab(tablet, 'Settings');
+  await tablet.getByRole('button', { name: 'Activity log' }).click();
+  const log = tablet.locator('.activity li');
+  await log.filter({ hasText: 'admin@example.com signed in with a recovery code' }).waitFor();
+  await log.filter({ hasText: 'admin@example.com set a new password from a reset email' }).waitFor();
+  await log.filter({ hasText: 'admin@example.com turned on two-step sign-in' }).waitFor();
+  step('activity log shows the security changes');
+
   assert.deepEqual(problems, [], 'no browser errors, blocked requests or requests to other origins');
   console.log('\nALL PASSED');
 } catch (e) {
@@ -207,5 +280,6 @@ try {
   for (const [i, p] of pages.entries()) await p.screenshot({ path: new URL(`failure-${i + 1}.png`, import.meta.url).pathname, fullPage: true }).catch(() => {});
   process.exitCode = 1;
 } finally {
+  await mail.close();
   await browser.close();
 }

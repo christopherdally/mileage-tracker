@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "main": "src/index.js",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/index.js",
     "test": "node test/run.mjs",
     "create-admin": "node src/create-admin.js"
   },
   "dependencies": {
+    "nodemailer": "^10.5.0",
     "pg": "^8.13.0"
   },
   "optionalDependencies": {

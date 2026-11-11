@@ -143,3 +143,36 @@ WITH made AS (
 )
 UPDATE fuel_purchases f SET vehicle_id = made.id, server_seq = nextval('sync_seq')
 FROM made WHERE f.user_id = made.user_id AND f.vehicle_id IS NULL;
+
+-- Two-step sign-in (TOTP authenticator app). The secret is set when setup starts and only counts once enabled.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_last_step BIGINT NOT NULL DEFAULT 0;         -- a code can't be used twice
+ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_codes JSONB NOT NULL DEFAULT '[]'::jsonb; -- SHA-256 hashes, each usable once
+
+-- Emailed password reset links. Only a hash of the token is stored.
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash  TEXT PRIMARY KEY,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- What admins did and security changes to accounts, for review later. Names are copied in so
+-- entries still read properly after a user is deleted.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          BIGSERIAL PRIMARY KEY,
+  at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actor       TEXT NOT NULL DEFAULT '',   -- username, or '' when nobody was signed in
+  action      TEXT NOT NULL,              -- e.g. 'user.create'
+  target      TEXT NOT NULL DEFAULT '',   -- username or backup filename the action was about
+  detail      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ip          TEXT NOT NULL DEFAULT ''
+);
+
+-- Attempt counters for rate limiting. In the database so they survive restarts and are shared by replicas.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key          TEXT PRIMARY KEY,
+  window_start TIMESTAMPTZ NOT NULL,
+  count        INTEGER NOT NULL
+);

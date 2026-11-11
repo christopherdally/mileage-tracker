@@ -12,7 +12,7 @@ import { RatesScreen } from './screens/Rates.jsx';
 import { FuelScreen } from './screens/Fuel.jsx';
 import { ReportScreen } from './screens/Report.jsx';
 import { MoreScreen, useSyncStatus } from './screens/More.jsx';
-import { UsersScreen, BackupsScreen } from './screens/Admin.jsx';
+import { UsersScreen, BackupsScreen, ActivityScreen } from './screens/Admin.jsx';
 
 const TABS = [
   { id: 'log', label: 'Log', icon: 'log' },
@@ -22,7 +22,9 @@ const TABS = [
   { id: 'report', label: 'Report', icon: 'report' },
   { id: 'more', label: 'Settings', icon: 'more' },
 ];
-const SUBPAGES = { users: 'more', backups: 'more', 'report-archive': 'more', 'company-dates': 'more' };
+const SUBPAGES = { users: 'more', backups: 'more', activity: 'more', 'report-archive': 'more', 'company-dates': 'more' };
+// A password reset link from an email: #reset?token=…
+const resetTokenInUrl = () => (location.hash.startsWith('#reset?') ? new URLSearchParams(location.hash.slice(7)).get('token') : null);
 
 function useRoute() {
   const read = () => (location.hash.slice(1) || 'log');
@@ -39,6 +41,12 @@ export function App() {
   const [user, setUser] = useState(session.token ? session.user : null);
   const [ready, setReady] = useState(false);
   const [expired, setExpired] = useState(false);
+  const [resetToken, setResetToken] = useState(resetTokenInUrl);
+  useEffect(() => {
+    const on = () => setResetToken(resetTokenInUrl());
+    window.addEventListener('hashchange', on);
+    return () => window.removeEventListener('hashchange', on);
+  }, []);
 
   // Open this user's on-device database and start syncing.
   useEffect(() => {
@@ -67,6 +75,13 @@ export function App() {
     location.hash = '';
   }
 
+  if (resetToken) {
+    return (
+      <ToastProvider>
+        <ResetPassword token={resetToken} onDone={() => { location.hash = ''; }} />
+      </ToastProvider>
+    );
+  }
   if (!user || expired) {
     return (
       <ToastProvider>
@@ -118,6 +133,7 @@ function Shell({ user, setUser, signOut }) {
         {page === 'more' && <MoreScreen user={user} onUser={setUser} onSignOut={signOut} go={go} />}
         {page === 'users' && <UsersScreen me={user} back={() => go('more')} />}
         {page === 'backups' && <BackupsScreen back={() => go('more')} />}
+        {page === 'activity' && <ActivityScreen back={() => go('more')} />}
       </main>
       <nav className="tabbar" aria-label="Main">
         {TABS.map((t) => (
@@ -146,21 +162,38 @@ function Login({ onLogin, expiredFor }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Two-step sign-in: the server asks for a code once the password is right.
+  const [needCode, setNeedCode] = useState(false);
+  const [code, setCode] = useState('');
+  const [codeError, setCodeError] = useState(null);
+  const [canReset, setCanReset] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  useEffect(() => { api('GET', '/auth/options').then((o) => setCanReset(!!o?.passwordReset), () => {}); }, []);
 
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    setCodeError(null);
     try {
-      const { token, user } = await api('POST', '/auth/login', { username, password });
+      const { token, user } = await api('POST', '/auth/login', { username, password, code: needCode ? code.trim() : undefined });
       session.save(token, user);
       onLogin(user);
     } catch (err) {
-      setError(err instanceof OfflineError ? "You're offline. Connect to the internet to sign in." : err.message);
+      if (err.data?.twoFactorRequired) {
+        if (needCode) setCodeError(err.message);
+        setNeedCode(true);
+      } else {
+        setNeedCode(false);
+        setCode('');
+        setError(err instanceof OfflineError ? "You're offline. Connect to the internet to sign in." : err.message);
+      }
     } finally {
       setBusy(false);
     }
   }
+
+  if (forgot) return <ForgotPassword username={username} onBack={() => setForgot(false)} />;
 
   return (
     <main className="login">
@@ -181,10 +214,105 @@ function Login({ onLogin, expiredFor }) {
         <Field label="Password" error={error}>
           {(id) => <input id={id} type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />}
         </Field>
-        <button type="submit" className="btn btn-primary btn-block" disabled={busy || !username || !password}>
+        {needCode && (
+          <Field label="Code from your authenticator app" hint="Or one of your recovery codes" error={codeError}>
+            {(id) => <input id={id} value={code} onChange={(e) => setCode(e.target.value)} inputMode="text" autoComplete="one-time-code" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus />}
+          </Field>
+        )}
+        <button type="submit" className="btn btn-primary btn-block" disabled={busy || !username || !password || (needCode && !code.trim())}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      {canReset && <p className="mt"><button type="button" className="link-btn" onClick={() => setForgot(true)}>Forgot your password?</button></p>}
+    </main>
+  );
+}
+
+function ForgotPassword({ username: initial, onBack }) {
+  const [username, setUsername] = useState(initial || '');
+  const [error, setError] = useState(null);
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api('POST', '/auth/forgot', { username });
+      setSent(true);
+    } catch (err) {
+      setError(err instanceof OfflineError ? "You're offline. Connect to the internet to reset your password." : err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="login">
+      <h1>Reset your password</h1>
+      {sent ? (
+        <p className="notice">If {username.trim()} is an account that signs in with an email address, a link to choose a new password is on its way. It works for an hour. If nothing arrives, ask your administrator to reset it.</p>
+      ) : (
+        <>
+          <p className="muted">Enter the email address you sign in with and we'll send a link to choose a new password.</p>
+          <form onSubmit={submit} noValidate>
+            <Field label="Email address" error={error}>
+              {(id) => <input id={id} type="email" value={username} onChange={(e) => setUsername(e.target.value)} autoCapitalize="none" autoComplete="username" autoCorrect="off" spellCheck={false} />}
+            </Field>
+            <button type="submit" className="btn btn-primary btn-block" disabled={busy || !username.trim()}>{busy ? 'Sending…' : 'Send reset link'}</button>
+          </form>
+        </>
+      )}
+      <button type="button" className="btn btn-quiet btn-block mt" onClick={onBack}>Back to sign in</button>
+    </main>
+  );
+}
+
+/** Opened from the link in a reset email. */
+function ResetPassword({ token, onDone }) {
+  const [next, setNext] = useState('');
+  const [again, setAgain] = useState('');
+  const [error, setError] = useState(null);
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError(null);
+    if (next.length < 8) return setError('Use at least 8 characters');
+    if (next !== again) return setError("The two passwords don't match");
+    setBusy(true);
+    try {
+      await api('POST', '/auth/reset', { token, newPassword: next });
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof OfflineError ? 'Connect to the internet to set your password' : err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="login">
+      <h1>Choose a new password</h1>
+      {done ? (
+        <>
+          <p className="notice">Your password has been changed and other devices have been signed out.</p>
+          <button type="button" className="btn btn-primary btn-block" onClick={onDone}>Sign in</button>
+        </>
+      ) : (
+        <form onSubmit={submit} noValidate>
+          <Field label="New password" hint="At least 8 characters">
+            {(id) => <input id={id} type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />}
+          </Field>
+          <Field label="New password again" error={error}>
+            {(id) => <input id={id} type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />}
+          </Field>
+          <button type="submit" className="btn btn-primary btn-block" disabled={busy || !next || !again}>{busy ? 'Saving…' : 'Save password'}</button>
+          <button type="button" className="btn btn-quiet btn-block mt" onClick={onDone}>Cancel</button>
+        </form>
+      )}
     </main>
   );
 }

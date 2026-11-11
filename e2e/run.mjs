@@ -14,7 +14,11 @@ if (!fs.existsSync(path.join(clientDir, 'index.html'))) {
   process.exit(1);
 }
 
-const env = { ADMIN_PASSWORD: 'first-admin-pass' };
+const env = {
+  ADMIN_PASSWORD: 'first-admin-pass',
+  // Password reset emails go to a mail server the test runs itself.
+  APP_URL: 'http://127.0.0.1:3190', SMTP_HOST: '127.0.0.1', SMTP_PORT: '3195',
+};
 const code = await withServer({ db: 'mileage_test_e2e', port: 3190, env, clientDir }, (base) =>
   run(process.execPath, [path.join(here, 'app.test.mjs')], { BASE: base, ...env }));
 process.exit(code);

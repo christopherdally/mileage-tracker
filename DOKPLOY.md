@@ -24,6 +24,14 @@ ADMIN_USERNAME=admin@example.com
 ADMIN_PASSWORD=
 TZ=Europe/London
 
+# Optional: "Forgot your password?" emails. Needs your site's address and a mail server.
+# APP_URL=https://mileage.example.com
+# SMTP_HOST=
+# SMTP_PORT=587
+# SMTP_USER=
+# SMTP_PASS=
+# SMTP_FROM=Mileage Tracker <mileage@example.com>
+
 # Backups: local (Docker volume on the server), s3, or both
 BACKUP_TARGET=local
 BACKUP_TIME=02:00
@@ -66,6 +74,7 @@ Use this if you'd rather manage the database as a separate Dokploy service.
 - **Health check**: `https://<your-domain>/api/health` returns `{"ok":true}`.
 - **Locked out**: in Dokploy open the app container's terminal and run
   `npm run create-admin -- admin@example.com 'a-new-password'`
+  (this also turns off two-step sign-in for that account)
 - **Updates**: push to the branch and redeploy (or turn on auto-deploy). Phones show "A new version is ready" and reload when tapped.
 - `ADMIN_PASSWORD` is only used when the database has no users. After first sign-in it's no longer needed and can be removed from the environment.
 

@@ -39,6 +39,12 @@ services:
       ADMIN_NAME: ${ADMIN_NAME:-}
       TRUST_PROXY: "true"
       SESSION_DAYS: ${SESSION_DAYS:-60}
+      APP_URL: ${APP_URL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       TZ: ${TZ:-Europe/London}
       BACKUP_TARGET: ${BACKUP_TARGET:-local}
       BACKUP_TIME: ${BACKUP_TIME:-02:00}
