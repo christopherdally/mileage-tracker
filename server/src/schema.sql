@@ -115,3 +115,31 @@ CREATE TABLE IF NOT EXISTS report_archives (
  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS report_archives_user ON report_archives(user_id, report_month);
+
+-- Vehicles. A user can drive more than one; journeys and fuel each point at the vehicle used.
+CREATE TABLE IF NOT EXISTS vehicles (
+  id            UUID PRIMARY KEY,
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,              -- e.g. "Ford Focus AB12 CDE"
+  deleted       BOOLEAN NOT NULL DEFAULT FALSE,
+  client_updated_at TIMESTAMPTZ NOT NULL,
+  server_seq    BIGINT NOT NULL DEFAULT nextval('sync_seq')
+);
+CREATE INDEX IF NOT EXISTS vehicles_user_seq ON vehicles(user_id, server_seq);
+-- No foreign key: the ids are chosen on the device and a deleted vehicle stays as a tombstone.
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS vehicle_id UUID;
+ALTER TABLE fuel_purchases ADD COLUMN IF NOT EXISTS vehicle_id UUID;
+
+-- Before vehicles had their own table each user had one free-text vehicle. Turn it into their
+-- first vehicle and attach their existing entries to it. Runs once per user: afterwards they have a row.
+WITH made AS (
+  INSERT INTO vehicles (id, user_id, name, client_updated_at)
+  SELECT gen_random_uuid(), u.id, btrim(u.vehicle), now() FROM users u
+  WHERE btrim(u.vehicle) <> '' AND NOT EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = u.id)
+  RETURNING id, user_id
+), moved AS (
+  UPDATE trips t SET vehicle_id = made.id, server_seq = nextval('sync_seq')
+  FROM made WHERE t.user_id = made.user_id AND t.vehicle_id IS NULL
+)
+UPDATE fuel_purchases f SET vehicle_id = made.id, server_seq = nextval('sync_seq')
+FROM made WHERE f.user_id = made.user_id AND f.vehicle_id IS NULL;

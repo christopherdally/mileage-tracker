@@ -6,7 +6,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { query } from './db.js';
+import { query, migrate } from './db.js';
 
 const env = process.env;
 export const BACKUP_DIR = path.resolve(env.BACKUP_DIR || '/backups');
@@ -153,6 +153,7 @@ export async function restoreBackup(b) {
   try {
     await run('pg_restore', ['--clean', '--if-exists', '--no-owner', '--no-privileges', '--single-transaction',
       '--dbname', env.DATABASE_URL, file.path]);
+    await migrate(); // a backup from an older version won't have newer tables and columns
     await query("UPDATE meta SET value = gen_random_uuid()::text WHERE key='data_epoch'");
     await query('TRUNCATE backups');
     for (const r of log) {

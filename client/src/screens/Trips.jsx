@@ -4,9 +4,12 @@ import { rateForTrip } from '../calc.js';
 import { Empty, Sheet } from '../ui.jsx';
 import { TripForm } from './TripForm.jsx';
 import { fmtDate, fmtMiles, fmtRate, monthName } from '../util.js';
+import { vehicleName } from '../vehicles.js';
 
 export function TripRow({ trip, rates, onOpen }) {
   const r = rateForTrip(trip, rates);
+  const { vehicles } = useStore();
+  const vehicle = vehicles.length > 1 ? vehicleName(vehicles, trip.vehicleId) : '';
   const hasOdo = trip.startOdometer !== null && trip.startOdometer !== undefined;
   return (
     <li>
@@ -15,6 +18,7 @@ export function TripRow({ trip, rates, onOpen }) {
         <span className="trip-desc">
           {trip.description || <span className="muted">Business journey</span>}
           <span className="trip-meta">
+            {vehicle && <span>{vehicle}</span>}
             {hasOdo && <span className="num">{trip.startOdometer} to {trip.endOdometer}</span>}
             {r.pence === null ? <span className="warn-text">No rate</span> : <span>{fmtRate(r.pence)}{r.source === 'custom' ? ' custom' : ''}</span>}
             {trip.dirty && <span className="pending-dot" title="Waiting to sync">Not synced</span>}

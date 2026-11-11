@@ -18,8 +18,19 @@ const longDate = (s) => {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
-export async function buildClaimPdf({ report, rates, user, fuel = null }) {
+/** `vehicles` is every vehicle the user has had; `vehicleId` is set when the report covers just one. */
+export async function buildClaimPdf({ report, rates, user, fuel = null, vehicles = [], vehicleId = null }) {
   const hasFuel = fuel && fuel.count > 0;
+  const nameOf = (id) => vehicles.find((v) => v.id === id)?.name || '';
+  const distinct = (rows) => [...new Set(rows.map((r) => r.vehicleId || ''))];
+  const tripVehicles = distinct(report.lines.map((l) => l.trip));
+  const fuelVehicles = distinct(hasFuel ? fuel.lines : []);
+  // Say which vehicle each entry used only when the report mixes more than one.
+  const multi = tripVehicles.length > 1;
+  const multiFuel = fuelVehicles.length > 1;
+  let vehicleNames = (vehicleId ? [vehicleId] : [...new Set([...tripVehicles, ...fuelVehicles])]).map(nameOf).filter(Boolean);
+  if (!vehicleNames.length) vehicleNames = vehicles.filter((v) => !v.deleted).map((v) => v.name);
+  if (!vehicleNames.length && user.vehicle) vehicleNames = [user.vehicle];
   const doc = await PDFDocument.create();
   const reg = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -81,14 +92,13 @@ export async function buildClaimPdf({ report, rates, user, fuel = null }) {
 
   const meta = [
     ['Name', name],
-    ['Vehicle', user.vehicle || 'Not recorded'],
+    [vehicleNames.length > 1 ? 'Vehicles' : 'Vehicle', vehicleNames.join(', ') || 'Not recorded'],
     ['Prepared', longDate(today())],
     ...(fuel?.from && fuel?.to ? [['Fuel period', `${longDate(fuel.from)} to ${longDate(fuel.to)}`]] : []),
   ];
   for (const [k, v] of meta) {
     text(k, M, 9.5, reg, C.muted);
-    text(v, M + 70, 9.5, bold);
-    y -= 15;
+    for (const l of wrap(bold, v, 9.5, W - 70)) { text(l, M + 70, 9.5, bold); y -= 15; }
   }
   y -= 8;
 
@@ -146,6 +156,27 @@ export async function buildClaimPdf({ report, rates, user, fuel = null }) {
   text(totalParts.length > 1 ? `Total  (${totalParts.join(' + ')})` : 'Total', M, 11, bold);
   right(fmtPounds(report.totalPence), A4[0] - M, 11, bold, C.blue);
   y -= 30;
+
+  // ── Miles by vehicle ──
+  if (multi) {
+    ensure(40 + 14 * report.byVehicle.length);
+    text('Miles by vehicle', M, 13, bold);
+    y -= 8;
+    rule();
+    y -= 15;
+    const vx = [M, M + 380, A4[0] - M];
+    text('Vehicle', vx[0], 8.5, bold, C.muted);
+    right('Journeys', vx[1], 8.5, bold, C.muted);
+    right('Miles', vx[2], 8.5, bold, C.muted);
+    y -= 14;
+    for (const v of report.byVehicle) {
+      text(nameOf(v.vehicleId) || 'Vehicle not recorded', vx[0]);
+      right(String(v.tripCount), vx[1]);
+      right(fmtMiles(v.miles), vx[2]);
+      y -= 14;
+    }
+    y -= 18;
+  }
 
   // ── Fuel paid compared with the claim ──
   if (hasFuel) {
@@ -222,10 +253,12 @@ export async function buildClaimPdf({ report, rates, user, fuel = null }) {
   for (const line of report.lines) {
     const t = line.trip;
     const desc = wrap(reg, t.description || 'Business journey', 9, DESC_W).slice(0, 3);
-    const h = 13 * desc.length + 2;
+    const car = multi ? wrap(reg, nameOf(t.vehicleId) || 'Vehicle not recorded', 8, DESC_W)[0] : null;
+    const h = 13 * desc.length + (car ? 11 : 0) + 2;
     ensure(h, () => { text('Journey log (continued)', M, 10, bold, C.muted); y -= 16; header(); });
     text(fmtDate(t.tripDate, { weekday: true, year: false }), X.date, 9);
     desc.forEach((l, i) => page.drawText(l, { x: X.desc, y: y - i * 13, size: 9, font: reg, color: C.ink }));
+    if (car) page.drawText(car, { x: X.desc, y: y - desc.length * 13 + 2, size: 8, font: reg, color: C.muted });
     right(odo(t.startOdometer), X.start, 9);
     right(odo(t.endOdometer), X.end, 9);
     right(fmtMiles(t.miles), X.miles, 9);
@@ -273,10 +306,12 @@ export async function buildClaimPdf({ report, rates, user, fuel = null }) {
     fHeader();
     for (const f of fuel.lines) {
       const where = wrap(reg, f.description || 'Fuel', 9, F.litres - 50 - F.where).slice(0, 2);
-      const h = 13 * where.length + 2;
+      const car = multiFuel ? wrap(reg, nameOf(f.vehicleId) || 'Vehicle not recorded', 8, F.litres - 50 - F.where)[0] : null;
+      const h = 13 * where.length + (car ? 11 : 0) + 2;
       ensure(h, () => { text('Fuel purchases (continued)', M, 10, bold, C.muted); y -= 16; fHeader(); });
       text(fmtDate(f.purchaseDate, { weekday: true, year: false }), F.date, 9);
       where.forEach((l, i) => page.drawText(l, { x: F.where, y: y - i * 13, size: 9, font: reg, color: C.ink }));
+      if (car) page.drawText(car, { x: F.where, y: y - where.length * 13 + 2, size: 8, font: reg, color: C.muted });
       right(f.litres ? Number(f.litres).toLocaleString('en-GB', { maximumFractionDigits: 2 }) : '', F.litres, 9);
       right(Number(f.litres) > 0 ? (f.amountPence / f.litres).toFixed(1) : '', F.ppl, 9);
       const n = f.receiptIds?.length || 0;

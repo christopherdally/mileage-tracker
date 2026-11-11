@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildReport, fuelSummary } from '../src/calc.js';
 import { buildClaimPdf } from '../src/pdf.js';
@@ -24,6 +25,23 @@ const fuelRows = [
   { id: 'f4', purchaseDate: '2026-10-21', amountPence: 5000, deleted: true, receiptIds: [] },
 ];
 const fuel = fuelSummary({ fuel: fuelRows, from: '2026-08-26', to: '2026-10-25' });
-const bytes = await buildClaimPdf({ report, rates, fuel, user: { username: 'dave', displayName: 'Dave Jones', vehicle: 'Ford Focus AB12 CDE' } });
-fs.writeFileSync(process.argv[2], bytes);
-console.log('pdf ok', bytes.length, 'bytes; trips', report.tripCount, 'total', report.totalPence);
+const user = { username: 'dave', displayName: 'Dave Jones', vehicle: 'Ford Focus AB12 CDE' };
+const bytes = await buildClaimPdf({ report, rates, fuel, user });
+// Pass a path to keep the PDF for a look: node test/pdf.test.mjs out.pdf
+if (process.argv[2]) fs.writeFileSync(process.argv[2], bytes);
+assert.equal(Buffer.from(bytes.slice(0, 5)).toString(), '%PDF-');
+assert.equal(report.tripCount, trips.filter((t) => t.tripDate >= '2026-08-26').length);
+
+// Two vehicles: the report says which was used for each entry and adds a per-vehicle breakdown.
+const vehicles = [{ id: 'v1', name: 'Ford Focus AB12 CDE' }, { id: 'v2', name: 'Transit van XY70 ZZZ', deleted: true }];
+const mixedTrips = trips.map((t, i) => ({ ...t, vehicleId: i % 3 === 0 ? 'v2' : i % 7 === 0 ? null : 'v1' }));
+const mixedFuel = fuelRows.map((f, i) => ({ ...f, vehicleId: i ? 'v1' : 'v2' }));
+const mixed = buildReport({ trips: mixedTrips, rates, from: '2026-08-26', to: '2026-10-25' });
+assert.equal(mixed.byVehicle.length, 3);
+assert.equal(mixed.byVehicle.reduce((s, v) => s + v.tripCount, 0), mixed.tripCount);
+const mixedBytes = await buildClaimPdf({ report: mixed, rates, fuel: fuelSummary({ fuel: mixedFuel, from: '2026-08-26', to: '2026-10-25' }), user, vehicles });
+assert.ok(mixedBytes.length > bytes.length, 'the multi-vehicle PDF carries the extra vehicle lines');
+if (process.argv[3]) fs.writeFileSync(process.argv[3], mixedBytes);
+const van = buildReport({ trips: mixedTrips, rates, from: '2026-08-26', to: '2026-10-25', vehicleId: 'v2' });
+await buildClaimPdf({ report: van, rates, user, vehicles, vehicleId: 'v2' });
+console.log('PDF tests passed');

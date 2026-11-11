@@ -98,13 +98,20 @@ api.post('/api/users', async (req) => {
   if (!USERNAME_RE.test(username)) throw new HttpError(400, 'Use an email address or a username of letters, numbers and . _ -');
   checkPassword(b.password);
   try {
-    const { rows } = await query(
-      `INSERT INTO users (username, display_name, password_hash, is_admin, vehicle, must_change_password)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [username, str(b.displayName) || username, await hashPassword(String(b.password)), !!b.isAdmin, str(b.vehicle),
-       b.mustChangePassword !== false]
-    );
-    return { status: 201, body: { user: publicUser(rows[0]) } };
+    const vehicle = str(b.vehicle).trim();
+    const user = await withTx(async (c) => {
+      const { rows } = await c.query(
+        `INSERT INTO users (username, display_name, password_hash, is_admin, vehicle, must_change_password)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [username, str(b.displayName) || username, await hashPassword(String(b.password)), !!b.isAdmin, vehicle,
+         b.mustChangePassword !== false]
+      );
+      if (vehicle) {
+        await c.query('INSERT INTO vehicles (id, user_id, name, client_updated_at) VALUES ($1,$2,$3,now())', [randomUUID(), rows[0].id, vehicle]);
+      }
+      return rows[0];
+    });
+    return { status: 201, body: { user: publicUser(user) } };
   } catch (e) {
     if (e.code === '23505') throw new HttpError(409, 'That username is already taken');
     throw e;
@@ -160,8 +167,21 @@ const isDate = (v) => typeof v === 'string' && DATE_RE.test(v) && !Number.isNaN(
 const isoOrNull = (v) => { const t = Date.parse(v); return Number.isNaN(t) ? null : new Date(t).toISOString(); };
 const finite = (v, max) => v === null || (Number.isFinite(v) && v >= 0 && v <= max);
 
+// undefined = a device that doesn't know about vehicles yet (keep what's stored); null = no vehicle.
+const vehicleRef = (v) => (v === undefined ? undefined : v === null || v === '' ? null : typeof v === 'string' && UUID_RE.test(v) ? v.toLowerCase() : false);
+
+function cleanVehicle(v) {
+  if (!v || !UUID_RE.test(v.id)) return null;
+  const name = str(v.name).trim();
+  const updatedAt = isoOrNull(v.updatedAt);
+  if (!name || !updatedAt) return null;
+  return { id: v.id.toLowerCase(), name, deleted: !!v.deleted, updatedAt };
+}
+
 function cleanTrip(t) {
   if (!t || !UUID_RE.test(t.id) || !isDate(t.tripDate)) return null;
+  const vehicleId = vehicleRef(t.vehicleId);
+  if (vehicleId === false) return null;
   const miles = num(t.miles);
   const rate = num(t.rateOverridePence);
   const so = num(t.startOdometer);
@@ -171,7 +191,7 @@ function cleanTrip(t) {
   if (!updatedAt) return null;
   return {
     id: t.id.toLowerCase(), tripDate: t.tripDate, description: str(t.description, 500),
-    startOdometer: so, endOdometer: eo, miles, rateOverridePence: rate, deleted: !!t.deleted, updatedAt,
+    startOdometer: so, endOdometer: eo, miles, rateOverridePence: rate, vehicleId, deleted: !!t.deleted, updatedAt,
   };
 }
 
@@ -197,22 +217,28 @@ function cleanFuel(f) {
   if (!finite(litres, 10000) || !finite(odo, 1e8) || !updatedAt) return null;
   const ids = Array.isArray(f.receiptIds) ? f.receiptIds : [];
   if (ids.length > 20 || !ids.every((x) => typeof x === 'string' && UUID_RE.test(x))) return null;
+  const vehicleId = vehicleRef(f.vehicleId);
+  if (vehicleId === false) return null;
   return {
     id: f.id.toLowerCase(), purchaseDate: f.purchaseDate, amountPence: amount, litres, odometer: odo,
-    description: str(f.description, 300), receiptIds: ids.map((x) => x.toLowerCase()), deleted: !!f.deleted, updatedAt,
+    description: str(f.description, 300), receiptIds: ids.map((x) => x.toLowerCase()),
+    vehicleId, deleted: !!f.deleted, updatedAt,
   };
 }
 
 const fuelOut = (f) => ({
   id: f.id, purchaseDate: f.purchase_date, amountPence: f.amount_pence, litres: f.litres, odometer: f.odometer,
-  description: f.description, receiptIds: f.receipt_ids || [], deleted: f.deleted,
+  description: f.description, receiptIds: f.receipt_ids || [], vehicleId: f.vehicle_id, deleted: f.deleted,
   updatedAt: new Date(f.client_updated_at).toISOString(),
 });
 
 const tripOut = (t) => ({
   id: t.id, tripDate: t.trip_date, description: t.description, startOdometer: t.start_odometer,
   endOdometer: t.end_odometer, miles: t.miles, rateOverridePence: t.rate_override_pence,
-  deleted: t.deleted, updatedAt: new Date(t.client_updated_at).toISOString(),
+  vehicleId: t.vehicle_id, deleted: t.deleted, updatedAt: new Date(t.client_updated_at).toISOString(),
+});
+const vehicleOut = (v) => ({
+  id: v.id, name: v.name, deleted: v.deleted, updatedAt: new Date(v.client_updated_at).toISOString(),
 });
 const rateOut = (p) => ({
   id: p.id, label: p.label, pencePerMile: p.pence_per_mile, startDate: p.start_date, endDate: p.end_date,
@@ -221,8 +247,8 @@ const rateOut = (p) => ({
 
 /**
  * Two-way sync.
- *   Request: { epoch, cursor, trips: [...], rates: [...] }  — this device's unsynced changes
- *   Reply:   { epoch, reset, cursor, trips, rates, rejected } — everything changed on the server after `cursor`
+ *   Request: { epoch, cursor, trips, rates, fuel, vehicles }  — this device's unsynced changes
+ *   Reply:   { epoch, reset, cursor, trips, rates, fuel, vehicles, rejected } — everything changed on the server after `cursor`
  * Conflicts: the most recent edit wins (by the editing device's updatedAt). Deletes are tombstones
  * (deleted=true) so other devices find out. `reset` means the server was restored from a backup:
  * the device should throw away its synced copy and keep only what this reply contains.
@@ -232,7 +258,8 @@ api.post('/api/sync', async (req) => {
   const inTrips = Array.isArray(req.body.trips) ? req.body.trips : [];
   const inRates = Array.isArray(req.body.rates) ? req.body.rates : [];
   const inFuel = Array.isArray(req.body.fuel) ? req.body.fuel : [];
-  if (inTrips.length + inRates.length + inFuel.length > MAX_BATCH) throw new HttpError(413, `Send at most ${MAX_BATCH} changes per sync`);
+  const inVehicles = Array.isArray(req.body.vehicles) ? req.body.vehicles : [];
+  if (inTrips.length + inRates.length + inFuel.length + inVehicles.length > MAX_BATCH) throw new HttpError(413, `Send at most ${MAX_BATCH} changes per sync`);
   let cursor = Math.max(0, Math.floor(Number(req.body.cursor) || 0));
   const rejected = [];
 
@@ -255,6 +282,20 @@ api.post('/api/sync', async (req) => {
     const reset = req.body.epoch !== epoch;
     if (reset) cursor = 0;
 
+    for (const raw of inVehicles) {
+      const v = cleanVehicle(raw);
+      if (!v) { rejected.push({ kind: 'vehicle', id: raw?.id ?? null }); continue; }
+      await c.query(
+        `INSERT INTO vehicles (id,user_id,name,deleted,client_updated_at)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (id) DO UPDATE SET
+           name=EXCLUDED.name, deleted=EXCLUDED.deleted, client_updated_at=EXCLUDED.client_updated_at,
+           server_seq=nextval('sync_seq')
+         WHERE vehicles.user_id = EXCLUDED.user_id
+           AND EXCLUDED.client_updated_at >= vehicles.client_updated_at`,
+        [v.id, me.id, v.name, v.deleted, v.updatedAt]
+      );
+    }
     for (const raw of inRates) {
       const p = cleanRate(raw);
       if (!p) { rejected.push({ kind: 'rate', id: raw?.id ?? null }); continue; }
@@ -274,9 +315,10 @@ api.post('/api/sync', async (req) => {
       const t = cleanTrip(raw);
       if (!t) { rejected.push({ kind: 'trip', id: raw?.id ?? null }); continue; }
       await c.query(
-        `INSERT INTO trips (id,user_id,trip_date,description,start_odometer,end_odometer,miles,rate_override_pence,deleted,client_updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        `INSERT INTO trips (id,user_id,trip_date,description,start_odometer,end_odometer,miles,rate_override_pence,deleted,client_updated_at,vehicle_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (id) DO UPDATE SET
+           vehicle_id=CASE WHEN $12 THEN EXCLUDED.vehicle_id ELSE trips.vehicle_id END,
            trip_date=EXCLUDED.trip_date, description=EXCLUDED.description,
            start_odometer=EXCLUDED.start_odometer, end_odometer=EXCLUDED.end_odometer, miles=EXCLUDED.miles,
            rate_override_pence=EXCLUDED.rate_override_pence, deleted=EXCLUDED.deleted,
@@ -284,7 +326,7 @@ api.post('/api/sync', async (req) => {
          WHERE trips.user_id = EXCLUDED.user_id
            AND EXCLUDED.client_updated_at >= trips.client_updated_at`,
         [t.id, me.id, t.tripDate, t.description, t.startOdometer, t.endOdometer, t.miles,
-         t.rateOverridePence, t.deleted, t.updatedAt]
+         t.rateOverridePence, t.deleted, t.updatedAt, t.vehicleId ?? null, t.vehicleId !== undefined]
       );
     }
 
@@ -292,26 +334,29 @@ api.post('/api/sync', async (req) => {
       const f = cleanFuel(raw);
       if (!f) { rejected.push({ kind: 'fuel', id: raw?.id ?? null }); continue; }
       await c.query(
-        `INSERT INTO fuel_purchases (id,user_id,purchase_date,amount_pence,litres,odometer,description,receipt_ids,deleted,client_updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
+        `INSERT INTO fuel_purchases (id,user_id,purchase_date,amount_pence,litres,odometer,description,receipt_ids,deleted,client_updated_at,vehicle_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11)
          ON CONFLICT (id) DO UPDATE SET
+           vehicle_id=CASE WHEN $12 THEN EXCLUDED.vehicle_id ELSE fuel_purchases.vehicle_id END,
            purchase_date=EXCLUDED.purchase_date, amount_pence=EXCLUDED.amount_pence, litres=EXCLUDED.litres,
            odometer=EXCLUDED.odometer, description=EXCLUDED.description, receipt_ids=EXCLUDED.receipt_ids,
            deleted=EXCLUDED.deleted, client_updated_at=EXCLUDED.client_updated_at, server_seq=nextval('sync_seq')
          WHERE fuel_purchases.user_id = EXCLUDED.user_id
            AND EXCLUDED.client_updated_at >= fuel_purchases.client_updated_at`,
         [f.id, me.id, f.purchaseDate, f.amountPence, f.litres, f.odometer, f.description,
-         JSON.stringify(f.receiptIds), f.deleted, f.updatedAt]
+         JSON.stringify(f.receiptIds), f.deleted, f.updatedAt, f.vehicleId ?? null, f.vehicleId !== undefined]
       );
     }
 
     const trips = await c.query('SELECT * FROM trips WHERE user_id=$1 AND server_seq > $2 ORDER BY server_seq', [me.id, cursor]);
     const fuel = await c.query('SELECT * FROM fuel_purchases WHERE user_id=$1 AND server_seq > $2 ORDER BY server_seq', [me.id, cursor]);
     const rates = await c.query('SELECT * FROM rate_periods WHERE user_id=$1 AND server_seq > $2 ORDER BY server_seq', [me.id, cursor]);
-    const next = Math.max(cursor, ...[...trips.rows, ...rates.rows, ...fuel.rows].map((x) => Number(x.server_seq)));
+    const vehicles = await c.query('SELECT * FROM vehicles WHERE user_id=$1 AND server_seq > $2 ORDER BY server_seq', [me.id, cursor]);
+    const next = Math.max(cursor, ...[...trips.rows, ...rates.rows, ...fuel.rows, ...vehicles.rows].map((x) => Number(x.server_seq)));
     return {
       epoch, reset, cursor: next, periodSettings,
       trips: trips.rows.map(tripOut), rates: rates.rows.map(rateOut), fuel: fuel.rows.map(fuelOut),
+      vehicles: vehicles.rows.map(vehicleOut),
     };
   });
   return { ...out, rejected };

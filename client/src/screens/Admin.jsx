@@ -32,7 +32,7 @@ function UserForm({ user, me, onDone }) {
     setError(null);
     try {
       if (user) {
-        const body = { displayName: f.displayName, vehicle: f.vehicle, isAdmin: f.isAdmin, isActive: f.isActive };
+        const body = { displayName: f.displayName, isAdmin: f.isAdmin, isActive: f.isActive };
         if (f.password) body.password = f.password;
         await api('PATCH', `/users/${user.id}`, body);
         toast(f.password ? 'Saved. Their password is reset and they are signed out.' : 'User saved');
@@ -61,7 +61,11 @@ function UserForm({ user, me, onDone }) {
         </Field>
       )}
       <Field label="Name">{(id) => <input id={id} value={f.displayName} onChange={set('displayName')} />}</Field>
-      <Field label="Vehicle">{(id) => <input id={id} value={f.vehicle} onChange={set('vehicle')} />}</Field>
+      {!user && (
+        <Field label="Vehicle" hint="Optional. Their first vehicle; they can add more in Settings.">
+          {(id) => <input id={id} value={f.vehicle} maxLength={100} onChange={set('vehicle')} placeholder="Ford Focus AB12 CDE" />}
+        </Field>
+      )}
       <Field label={user ? 'New password' : 'Password'} hint={user ? 'Leave empty to keep their current password. They will be asked to change it.' : 'At least 8 characters. Share it with them securely.'}>
         {(id) => <input id={id} type="text" autoComplete="off" value={f.password} onChange={set('password')} />}
       </Field>

@@ -7,10 +7,18 @@ import { FuelComparison } from './Fuel.jsx';
 import { saveBlob, session } from '../api.js';
 import { Field, Segmented, useToast } from '../ui.jsx';
 import { fmtDate, fmtMiles, fmtPounds, fmtRate, today, plural } from '../util.js';
+import { journeysCsv, fuelCsv, csvFilename } from '../csv.js';
 
 
 export function ReportScreen({ claimStartDay }) {
-  const { liveTrips, liveRates, liveFuel, meta } = useStore();
+  const { liveTrips, liveRates, liveFuel, vehicles, meta } = useStore();
+  const [vehicleId, setVehicleId] = useState('');
+  // Vehicles to report on: current ones, plus removed ones that still have entries.
+  const vehicleOptions = useMemo(() => {
+    const used = new Set([...liveTrips, ...liveFuel].map((x) => x.vehicleId));
+    return vehicles.filter((v) => !v.deleted || used.has(v.id)).sort((a, b) => a.name.localeCompare(b.name));
+  }, [vehicles, liveTrips, liveFuel]);
+  const vehicle = vehicleOptions.some((v) => v.id === vehicleId) ? vehicleId : null;
   const toast = useToast();
   const [preset, setPreset] = useState('current');
   const settings = meta.periodSettings?.days || {};
@@ -23,14 +31,14 @@ export function ReportScreen({ claimStartDay }) {
   const range = preset === 'current' ? cur : preset === 'last' ? reportPeriod(selectedMonth, 'mileage', settings) : custom;
   const valid = range.from && range.to && range.from <= range.to;
   const report = useMemo(
-    () => (valid ? buildReport({ trips: liveTrips, rates: liveRates, ...range }) : null),
-    [liveTrips, liveRates, range.from, range.to, valid] // eslint-disable-line react-hooks/exhaustive-deps
+    () => (valid ? buildReport({ trips: liveTrips, rates: liveRates, ...range, vehicleId: vehicle }) : null),
+    [liveTrips, liveRates, range.from, range.to, valid, vehicle] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const fuelRange = preset === "custom" ? range : reportPeriod(selectedMonth, "fuel", settings);
   const fuel = useMemo(
-    () => (valid ? fuelSummary({ fuel: liveFuel, ...fuelRange }) : null),
-    [liveFuel, fuelRange.from, fuelRange.to, valid] // eslint-disable-line react-hooks/exhaustive-deps
+    () => (valid ? fuelSummary({ fuel: liveFuel, ...fuelRange, vehicleId: vehicle }) : null),
+    [liveFuel, fuelRange.from, fuelRange.to, valid, vehicle] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   function setCustomField(k, v) {
@@ -43,7 +51,7 @@ export function ReportScreen({ claimStartDay }) {
     setBusy(true);
     try {
       const { buildClaimPdf, claimFilename } = await import('../pdf.js');
-      const bytes = await buildClaimPdf({ report, rates: liveRates, fuel: { ...fuel, ...fuelRange }, user: session.user || {} });
+      const bytes = await buildClaimPdf({ report, rates: liveRates, fuel: { ...fuel, ...fuelRange }, user: session.user || {}, vehicles, vehicleId: vehicle });
       const name = claimFilename(report, session.user || { username: 'me' });
       const blob = new Blob([bytes], { type: 'application/pdf' });
       const file = new File([blob], name, { type: 'application/pdf' });
@@ -63,6 +71,14 @@ export function ReportScreen({ claimStartDay }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function downloadCsv(kind) {
+    const user = session.user || { username: 'me' };
+    const csv = kind === 'fuel' ? fuelCsv(fuel, vehicles) : journeysCsv(report, vehicles);
+    const name = kind === 'fuel' ? csvFilename('fuel-purchases', fuelRange, user) : csvFilename('mileage-journeys', report, user);
+    saveBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), name);
+    toast('Spreadsheet downloaded');
   }
 
   const canShare = typeof navigator !== 'undefined' && !!navigator.canShare;
@@ -89,6 +105,16 @@ export function ReportScreen({ claimStartDay }) {
       </>}
       <p className="range-line">{preset === "custom" ? <>Fuel: {fmtDate(fuelRange.from)} to {fmtDate(fuelRange.to)}</> : <a href={`#company-dates?month=${selectedMonth}&back=report`}>Fuel: {fmtDate(fuelRange.from)} to {fmtDate(fuelRange.to)}</a>}</p>
       <p className="muted small">Entries dated after each cutoff appear on the next report.</p>
+      {vehicleOptions.length > 1 && (
+        <Field label="Vehicle">
+          {(id) => (
+            <select id={id} value={vehicle || ''} onChange={(e) => setVehicleId(e.target.value)}>
+              <option value="">All vehicles</option>
+              {vehicleOptions.map((v) => <option key={v.id} value={v.id}>{v.name}{v.deleted ? ' (removed)' : ''}</option>)}
+            </select>
+          )}
+        </Field>
+      )}
 
       {report && (
         <>
@@ -141,6 +167,12 @@ export function ReportScreen({ claimStartDay }) {
                 Share PDF
               </button>
             )}
+          </div>
+          <h2 className="panel-title mt">Spreadsheet export</h2>
+          <p className="muted small">The same entries as CSV files, for a spreadsheet or accounting software.</p>
+          <div className="btn-row wrap">
+            <button type="button" className="btn btn-quiet btn-small" disabled={!report.tripCount} onClick={() => downloadCsv('journeys')}>Journeys (CSV)</button>
+            <button type="button" className="btn btn-quiet btn-small" disabled={!fuel?.count} onClick={() => downloadCsv('fuel')}>Fuel (CSV)</button>
           </div>
         </>
       )}

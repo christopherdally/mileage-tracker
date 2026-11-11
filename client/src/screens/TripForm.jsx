@@ -5,17 +5,24 @@ import { syncSoon } from '../sync.js';
 import { Field, Segmented, parseNum, useToast } from '../ui.jsx';
 import { today, uuid, roundTenth, fmtMiles, fmtRate, fmtPounds } from '../util.js';
 import { rateForTrip } from '../calc.js';
+import { VehicleField } from '../VehicleField.jsx';
+import { defaultVehicleId } from '../vehicles.js';
 
 /** Add or edit one journey. `trip` is undefined when adding. */
 export function TripForm({ trip, onDone, compact = false }) {
-  const { liveTrips, liveRates } = useStore();
+  const { liveTrips, liveRates, liveFuel, liveVehicles } = useStore();
   const toast = useToast();
+  const [picked, setPicked] = useState(undefined);
+  const vehicleId = trip
+    ? (picked !== undefined ? picked : trip.vehicleId ?? null)
+    : defaultVehicleId(liveVehicles, [...liveTrips, ...liveFuel], picked);
 
-  // Pre-fill the start odometer with the last reading on or before the chosen date.
-  const lastEnd = (date) => {
+  // Pre-fill the start odometer with that vehicle's last reading on or before the chosen date.
+  const lastEnd = (date, vehicle = vehicleId) => {
     let best = null;
     for (const t of liveTrips) {
       if (t.id === trip?.id || t.endOdometer === null || t.endOdometer === undefined) continue;
+      if ((t.vehicleId ?? null) !== vehicle) continue;
       if (t.tripDate <= date && (!best || t.tripDate > best.tripDate || (t.tripDate === best.tripDate && t.endOdometer > best.endOdometer))) best = t;
     }
     return best ? String(best.endOdometer) : '';
@@ -55,6 +62,10 @@ export function TripForm({ trip, onDone, compact = false }) {
     setDate(v);
     if (mode === 'odo' && !touchedStart && v) setStart(lastEnd(v));
   }
+  function changeVehicle(v) {
+    setPicked(v);
+    if (mode === 'odo' && !touchedStart && date) setStart(lastEnd(date, v));
+  }
   function changeMode(m) {
     setMode(m);
     if (!trip) try { localStorage.setItem('mt.entryMode', m); } catch { /* ignore */ }
@@ -89,6 +100,7 @@ export function TripForm({ trip, onDone, compact = false }) {
       endOdometer: mode === 'odo' ? e : null,
       miles: roundTenth(finalMiles),
       rateOverridePence: override,
+      vehicleId,
       deleted: false,
     };
     await store.save('trips', row);
@@ -118,6 +130,7 @@ export function TripForm({ trip, onDone, compact = false }) {
   return (
     <form className={`trip-form ${compact ? 'compact' : ''}`} onSubmit={submit} noValidate>
       <EntryPeriod date={date} kind="mileage" />
+      <VehicleField value={vehicleId} onChange={changeVehicle} />
       <div className="row-2">
         <Field label="Date" error={errors.date}>
           {(id) => <input id={id} type="date" value={date} max="2100-12-31" onChange={(ev) => changeDate(ev.target.value)} required />}
