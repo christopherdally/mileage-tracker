@@ -7,8 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-12
+
 ### Added
 
+- Import journeys from a CSV file (Journeys → Import), for anyone moving over
+  from a spreadsheet. It needs a Date column and Miles (or start and end
+  odometer readings); Journey and Vehicle columns are used if present, dates
+  are read day-first, and a file from the app's own CSV export works as it
+  is. It shows what will be added and which rows can't be before anything is
+  saved, and leaves out journeys that are already logged.
 - Multiple vehicles per user. Settings has a list of vehicles; with two or
   more, journeys and fuel entries get a Vehicle picker (defaulting to the one
   used last), the start reading carries on from that vehicle's last journey,
@@ -111,5 +119,6 @@ First tagged release.
   container port `3001`, while the app actually listens on `3000`; the quick
   start now works out of the box (`3000:3000`).
 
-[Unreleased]: https://github.com/christopherdally/mileage-tracker/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/christopherdally/mileage-tracker/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/christopherdally/mileage-tracker/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/christopherdally/mileage-tracker/releases/tag/v1.0.0

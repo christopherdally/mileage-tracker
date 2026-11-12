@@ -1,6 +1,6 @@
 # Mileage Tracker
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](CHANGELOG.md) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)](CHANGELOG.md) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A self-hosted, mobile-first app for logging business mileage and producing monthly claim PDFs.
 
@@ -11,7 +11,7 @@ A self-hosted, mobile-first app for logging business mileage and producing month
 - **PDF claim** for any dates: this claim period, last period, or custom dates. Claim periods can start on any day of the month (e.g. 26th to 25th). The PDF shows the workings: miles × rate for each rate period, the rates in force, every journey, and signature lines.
 - **Fuel log with receipts.** Record what you paid at the pump (amount, litres, odometer, where) and attach receipt photos or PDFs, even offline. Photos are shrunk on the phone, stored in the database (so they're in every backup) and viewable on all your devices. Reports and the PDF compare fuel paid with the mileage claimed; the photos themselves stay out of the PDF.
 - **More than one vehicle.** Keep a list of the vehicles you drive for work and pick one on each journey and fuel entry. The start reading carries on from that vehicle's last journey, and a report can cover all of them or just one.
-- **Spreadsheet export.** Download the journeys and fuel behind any report as CSV files for a spreadsheet or accounting software.
+- **Spreadsheet export and import.** Download the journeys and fuel behind any report as CSV files for a spreadsheet or accounting software, and import journeys from a CSV file if you kept them in a spreadsheet before.
 - **No sign-up.** Sign in with an email address (or a plain username). Admins create accounts, reset passwords, disable or delete users. Anyone given a password by someone else must choose their own at first sign-in.
 - **Account security.** Optional two-step sign-in with any authenticator app (plus one-off recovery codes), "forgot my password" by email when you configure SMTP, sign-in attempt limits that survive restarts, and an activity log for admins of account and backup changes.
 - **Backups** with `pg_dump` to the server, to S3 (or any S3-compatible storage), or both. Daily schedule, manual backups, download and one-click restore from the admin screen.
@@ -101,7 +101,7 @@ If you already run nginx or Traefik, proxy to the `app` container on port 3000 i
 | Tab | What it's for |
 | --- | --- |
 | Log | Odometer of miles this claim period, the amount so far, fuel paid, and a form to add a journey or fuel. The start reading fills in from your last end reading. With two or more vehicles, a Vehicle picker appears on the form. |
-| Journeys | Every journey by month. Tap one to edit or delete it. |
+| Journeys | Every journey by month. Tap one to edit or delete it. Import adds journeys from a CSV file with a heading row: it needs Date and Miles (or Start odometer and End odometer) columns, uses Journey and Vehicle columns if present, reads dates day-first, and skips journeys you already have. |
 | Fuel | Fill-ups with receipt photos, and fuel paid compared with the claim for this period. |
 | Rates | Your pence-per-mile rates with start and end dates. Warns about overlaps. |
 | Report | Choose dates (and one vehicle, if you have several), see the workings, download or share the PDF, or download the journeys and fuel as CSV. Set which day your claim periods start. |
@@ -171,7 +171,7 @@ npm start
 ### Tests
 
 ```bash
-cd client && npm test          # unit tests: claim maths, periods, receipt text, CSV, PDF
+cd client && npm test          # unit tests: claim maths, periods, receipt text, CSV export and import, PDF
 
 # API tests. Each suite gets a fresh database and its own server, so the user must be
 # allowed to create databases. Needs pg_dump/pg_restore of the same major version as the server.
@@ -204,7 +204,8 @@ client/            React PWA built with esbuild
   src/pdf.js       PDF claim (pdf-lib, generated on the phone)
   src/receipts.js  Receipt photos: shrink, store offline, fetch from server
   src/csv.js       CSV export of a report's journeys and fuel
-  test/            Unit tests for the maths, CSV and PDF
+  src/import.js    CSV import of journeys
+  test/            Unit tests for the maths, CSV export and import, and PDF
 server/test/       API tests against a real server and database (run.mjs starts them)
 e2e/               Browser test of the whole app (Playwright)
 DOKPLOY.md         Dokploy deployment guide
@@ -233,7 +234,7 @@ There is intentionally no sign-up endpoint.
 
 ## Troubleshooting
 
-- **Which version am I running?** It's shown at the bottom of Settings in the app, and `GET /api/health` returns `{"ok":true,"version":"1.0.0"}`. Useful when reporting an issue.
+- **Which version am I running?** It's shown at the bottom of Settings in the app, and `GET /api/health` returns `{"ok":true,"version":"1.1.0"}`. Useful when reporting an issue.
 - **Can't sign in / don't know the admin password:** see [Admin tasks](#admin-tasks) above to reset it from the command line.
 - **Site won't load after `docker compose up`:** check `docker compose logs app` and `docker compose logs db`. The app waits for Postgres to report healthy before starting.
 - **Phone won't install the app or work offline:** this needs HTTPS — see [HTTPS (needed on phones)](#https-needed-on-phones). Plain HTTP only works for browser testing.

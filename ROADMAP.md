@@ -64,8 +64,9 @@ idea while reading the code.
   deadline, now that the app is already a PWA.
 - **Shared/team rate presets**, so an admin can publish a rate that new
   users inherit by default instead of each person entering their own.
-- **Bulk journey import** (e.g. from a CSV or a calendar) for people
-  migrating from a spreadsheet.
+- **Journey import from a calendar.** Journeys can be imported from a CSV
+  file; reading them from calendar entries would save retyping for people
+  who plan visits there.
 
 ---
 
