@@ -1,4 +1,4 @@
-// Drives the real app in a browser: sign in, vehicles, journeys, receipt scan, report exports, second device,
+// Drives the real app in a browser: sign in, vehicles, journeys, receipt scan, report exports, CSV import, second device,
 // two-step sign-in, password reset by email and the activity log.
 // Needs a server on an EMPTY database with ADMIN_PASSWORD, APP_URL, SMTP_HOST=127.0.0.1 and SMTP_PORT set
 // and ADMIN_USERNAME unset (run.mjs does this):
@@ -159,6 +159,7 @@ try {
     return { name: d.suggestedFilename(), data: fs.readFileSync(await d.path()) };
   };
   let csv = await download('Journeys (CSV)');
+  const journeysExport = csv.data;
   assert.match(csv.name, /^mileage-journeys_Administrator_\d{4}-\d\d-\d\d_to_\d{4}-\d\d-\d\d\.csv$/);
   assert.deepEqual(csv.data.toString().replace(/^﻿/, '').trim().split('\r\n'), [
     'Date,Vehicle,Journey,Start odometer,End odometer,Miles,Pence per mile,Rate type,Amount (GBP)',
@@ -180,12 +181,35 @@ try {
   assert.equal(pdf.data.subarray(0, 5).toString(), '%PDF-');
   step('report totals, vehicle filter, CSV and PDF downloads');
 
+  // ── Import journeys from a spreadsheet ──
+  await tab(page, 'Journeys');
+  await page.getByRole('button', { name: 'Import' }).click();
+  const importer = page.locator('dialog[open]');
+  const chooseFile = (name, text) => importer.getByTestId('import-picker').setInputFiles({ name, mimeType: 'text/csv', buffer: Buffer.from(text) });
+  await chooseFile('export.csv', journeysExport);
+  await importer.getByText('No new journeys to import.').waitFor();
+  await importer.getByText('2 already in your journeys').waitFor();
+  await chooseFile('old-logbook.csv', [
+    'Date,Purpose,Start,End,Distance,Car',
+    `03/02/2025,"Depot run, Swansea",,,61.5,${VAN}`,
+    `04/02/2025,Client visit Bath,52000,52047.2,,${FOCUS}`,
+    '31/02/2025,Impossible date,,,5,',
+  ].join('\r\n'));
+  await importer.getByText('2 journeys to import, 3 Feb 2025 to 4 Feb 2025, 108.7 miles in total.').waitFor();
+  await importer.getByText("Row 4: \"31/02/2025\" isn't a date").waitFor();
+  await importer.getByRole('button', { name: 'Import 2 journeys' }).click();
+  await page.getByText('Imported 2 journeys').waitFor();
+  await rows.filter({ hasText: 'Depot run, Swansea' }).filter({ hasText: VAN }).filter({ hasText: '61.5' }).waitFor();
+  await rows.filter({ hasText: 'Client visit Bath' }).filter({ hasText: '52000 to 52047.2' }).filter({ hasText: '47.2' }).waitFor();
+  step('journeys imported from a CSV file, without duplicating existing ones');
+
   // ── Everything reaches a second device ──
   await synced(page);
   const phone = await newDevice();
   await signIn(phone, PW);
   await tab(phone, 'Journeys');
   await phone.locator('.logbook li').filter({ hasText: 'Delivery, Bristol' }).filter({ hasText: VAN }).waitFor();
+  await phone.locator('.logbook li').filter({ hasText: 'Depot run, Swansea' }).waitFor();
   await tab(phone, 'Fuel');
   await phone.locator('.logbook li').filter({ hasText: 'TESCO EXTRA' }).filter({ hasText: VAN }).waitFor();
   await tab(phone, 'Settings');

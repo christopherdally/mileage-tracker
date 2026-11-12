@@ -152,6 +152,12 @@ export class Store {
     await this.put(kind, [{ ...prev, ...row, updatedAt, dirty: true, rejected: false }]);
   }
 
+  /** Save many new rows at once (an import), as one write. */
+  async saveMany(kind, rows) {
+    const updatedAt = new Date().toISOString();
+    await this.put(kind, rows.map((row) => ({ ...row, updatedAt, dirty: true, rejected: false })));
+  }
+
   async softDelete(kind, id) {
     const prev = this[kind].get(id);
     if (prev) await this.save(kind, { ...prev, deleted: true });

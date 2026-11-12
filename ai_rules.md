@@ -12,6 +12,6 @@ Project-specific rules for AI agents (Claude, Codex, etc.) working on this repo.
 - If the version has already been bumped today, fold any further same-day
   changes into that day's `CHANGELOG.md` entry instead of bumping again.
 - A bump means updating the version everywhere it appears, so they all
-  match: the root, `client/` and `server/` `package.json` files, the version
+  match: the root, `client/`, `server/` and `e2e/` `package.json` files, the version
   badge and the `/api/health` example in `README.md`, and a new dated entry
   in `CHANGELOG.md` (moving what was under `[Unreleased]` into it).

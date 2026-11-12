@@ -321,3 +321,7 @@ main#main { max-width: 640px; margin: 0 auto; }
 .activity { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
 .activity li { padding: 10px 0; border-bottom: 1px solid var(--rule); }
 .activity li > span { display: block; }
+
+/* Journey import */
+.head-actions { display: flex; gap: 8px; flex: none; }
+.import-skipped { margin: 4px 0 0; padding-left: 18px; }
