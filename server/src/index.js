@@ -94,8 +94,15 @@ async function main() {
     DELETE FROM receipt_files r WHERE r.created_at < now() - interval '7 days'
       AND NOT EXISTS (SELECT 1 FROM fuel_purchases f WHERE NOT f.deleted AND f.receipt_ids ? r.id::text)`)
     .catch((e) => console.error('Receipt tidy-up failed:', e.message));
-  tidyReceipts();
-  setInterval(tidyReceipts, 24 * 3600 * 1000);
+  // Expired reset links, finished rate-limit windows, and activity older than two years.
+  const tidySecurity = () => query(`
+    WITH a AS (DELETE FROM password_resets WHERE expires_at < now()),
+         b AS (DELETE FROM rate_limits WHERE window_start < now() - interval '1 day')
+    DELETE FROM audit_log WHERE at < now() - interval '2 years'`)
+    .catch((e) => console.error('Security tidy-up failed:', e.message));
+  const tidy = () => { tidyReceipts(); tidySecurity(); };
+  tidy();
+  setInterval(tidy, 24 * 3600 * 1000);
   const port = Number(process.env.PORT || 3000);
   server.listen(port, () => console.log(`Mileage Tracker v${APP_VERSION} listening on port ${port}`));
 }

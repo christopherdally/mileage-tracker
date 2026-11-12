@@ -7,7 +7,10 @@ import crypto from 'node:crypto';
 const root = path.dirname(new URL(import.meta.url).pathname);
 const out = path.join(root, 'dist');
 const watch = process.argv.includes('--dev');
-const appVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+const readJson = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
+const appVersion = readJson('package.json').version;
+// The receipt scanner's files are served from our own origin (the CSP blocks CDNs). Versioned path: /assets is cached forever.
+const ocrPath = `/assets/tesseract-${readJson('node_modules/tesseract.js/package.json').version}`;
 
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(path.join(out, 'assets'), { recursive: true });
@@ -29,6 +32,7 @@ const result = await esbuild.build({
   define: {
     'process.env.NODE_ENV': JSON.stringify(watch ? 'development' : 'production'),
     __APP_VERSION__: JSON.stringify(appVersion),
+    __TESSERACT_PATH__: JSON.stringify(ocrPath),
   },
   logLevel: 'info',
 });
@@ -40,6 +44,17 @@ const css = outputs.find((p) => p.endsWith('.css'));
 // Copy static files.
 for (const f of fs.readdirSync(path.join(root, 'public'))) {
   fs.copyFileSync(path.join(root, 'public', f), path.join(out, f));
+}
+
+// Not precached: about 11 MB, fetched (then cached by the service worker) the first time a receipt is scanned.
+fs.mkdirSync(path.join(out, ocrPath));
+for (const f of [
+  'tesseract.js/dist/worker.min.js',
+  'tesseract.js-core/tesseract-core-simd-lstm.wasm.js',
+  'tesseract.js-core/tesseract-core-lstm.wasm.js',
+  '@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz',
+]) {
+  fs.copyFileSync(path.join(root, 'node_modules', f), path.join(out, ocrPath, path.basename(f)));
 }
 
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8')

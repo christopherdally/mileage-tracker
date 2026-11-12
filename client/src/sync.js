@@ -30,16 +30,24 @@ function merge(kind, incoming) {
 
 async function syncOnce() {
   for (let round = 0; round < 50; round++) {
-    const dirtyRates = [...store.rates.values()].filter((r) => r.dirty).slice(0, BATCH);
-    const dirtyTrips = [...store.trips.values()].filter((t) => t.dirty).slice(0, BATCH - dirtyRates.length);
-    const dirtyFuel = [...store.fuel.values()].filter((f) => f.dirty).slice(0, Math.max(0, BATCH - dirtyRates.length - dirtyTrips.length));
-    const sent = new Map([...dirtyRates, ...dirtyTrips, ...dirtyFuel].map((r) => [r.id, r.updatedAt]));
+    let room = BATCH;
+    const take = (kind) => {
+      const rows = [...store[kind].values()].filter((r) => r.dirty).slice(0, room);
+      room -= rows.length;
+      return rows;
+    };
+    const dirtyVehicles = take('vehicles');
+    const dirtyRates = take('rates');
+    const dirtyTrips = take('trips');
+    const dirtyFuel = take('fuel');
+    const sent = new Map([...dirtyVehicles, ...dirtyRates, ...dirtyTrips, ...dirtyFuel].map((r) => [r.id, r.updatedAt]));
 
     const sentSettings = store.meta.periodSettings;
     const res = await api('POST', '/sync', {
       periodSettings: sentSettings?.dirty ? { days: sentSettings.days, updatedAt: sentSettings.updatedAt } : undefined,
       epoch: store.meta.epoch ?? null,
       cursor: store.meta.cursor ?? 0,
+      vehicles: dirtyVehicles.map(strip),
       rates: dirtyRates.map(strip),
       trips: dirtyTrips.map(strip),
       fuel: dirtyFuel.map(strip),
@@ -57,6 +65,7 @@ async function syncOnce() {
       await store.remove('trips', clean('trips'));
       await store.remove('rates', clean('rates'));
       await store.remove('fuel', clean('fuel'));
+      await store.remove('vehicles', clean('vehicles'));
     }
 
     const rejected = new Set((res.rejected || []).map((r) => r.id));
@@ -72,13 +81,14 @@ async function syncOnce() {
       return out;
     };
 
+    await store.put('vehicles', [...merge('vehicles', res.vehicles || []), ...tidy('vehicles', dirtyVehicles)]);
     await store.put('rates', [...merge('rates', res.rates), ...tidy('rates', dirtyRates)]);
     await store.put('trips', [...merge('trips', res.trips), ...tidy('trips', dirtyTrips)]);
     await store.put('fuel', [...merge('fuel', res.fuel || []), ...tidy('fuel', dirtyFuel)]);
     await store.setMeta('epoch', res.epoch);
     await store.setMeta('cursor', res.cursor);
 
-    const stillDirty = [...store.rates.values(), ...store.trips.values(), ...store.fuel.values()].some((r) => r.dirty);
+    const stillDirty = [...store.vehicles.values(), ...store.rates.values(), ...store.trips.values(), ...store.fuel.values()].some((r) => r.dirty);
     if (!store.meta.periodSettings?.dirty && (!stillDirty || sent.size === 0)) break;
   }
   await uploadReceipts();

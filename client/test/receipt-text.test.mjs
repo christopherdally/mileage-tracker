@@ -10,4 +10,7 @@ assert.equal(parseReceiptText('TOTAL 45,67\nVOLUME 30,25').litres,'30.25');
 assert.equal(parseReceiptText('TOTAL 45,67').amount,'45.67');
 assert.equal(parseReceiptText('Price per litre 1.49').litres,'');
 assert.equal(parseReceiptText('unreadable').amount,'');
+assert.equal(parseReceiptText('42.31 LITRES @ 139.9 P/L').litres,'42.31');
+assert.equal(parseReceiptText('UNLEADED 42.31L 139.9p/l').litres,'42.31');
+assert.equal(parseReceiptText('Price 149.9 p/l').litres,'');
 console.log('Receipt text tests passed');

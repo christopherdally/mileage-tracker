@@ -8,6 +8,8 @@ import { buildReport, fuelSummary, pencePerLitre } from '../calc.js';
 import { OfflineError } from '../api.js';
 import { Empty, Field, Sheet, parseNum, useToast } from '../ui.jsx';
 import { fmtDate, fmtPounds, monthName, today, uuid, plural } from '../util.js';
+import { VehicleField } from '../VehicleField.jsx';
+import { defaultVehicleId, vehicleName } from '../vehicles.js';
 
 const fmtLitres = (l) => `${Number(l).toLocaleString('en-GB', { maximumFractionDigits: 2 })} L`;
 const fmtPpl = (p) => `${p.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}p/L`;
@@ -69,6 +71,11 @@ export function ReceiptViewer({ open, onClose }) {
 
 export function FuelForm({ purchase, onDone }) {
   const toast = useToast();
+  const { liveTrips, liveFuel, liveVehicles } = useStore();
+  const [picked, setPicked] = useState(undefined);
+  const vehicleId = purchase
+    ? (picked !== undefined ? picked : purchase.vehicleId ?? null)
+    : defaultVehicleId(liveVehicles, [...liveFuel, ...liveTrips], picked);
   const [date, setDate] = useState(purchase?.purchaseDate || today());
   const [amount, setAmount] = useState(purchase ? (purchase.amountPence / 100).toFixed(2) : '');
   const [litres, setLitres] = useState(purchase?.litres ?? '');
@@ -161,6 +168,7 @@ export function FuelForm({ purchase, onDone }) {
       odometer: o,
       description: description.trim(),
       receiptIds,
+      vehicleId,
       deleted: false,
     });
     syncSoon();
@@ -183,7 +191,7 @@ export function FuelForm({ purchase, onDone }) {
     <form onSubmit={submit} noValidate>
       <section className="panel">
         <h2 className="panel-title">Scan a paid fuel receipt</h2>
-        <p className="field-hint">Take a photo or upload a picture to read the date, amount paid, litres and retailer. Review the suggestions before using them. You can edit every field. Internet is needed to load the scanner; text recognition runs on your device.</p>
+        <p className="field-hint">Take a photo or upload a picture to read the date, amount paid, litres and retailer. Review the suggestions before using them. You can edit every field. The scanner downloads from this app the first time you use it (about 7 MB); text recognition runs on your device.</p>
         <div className="btn-row wrap">
           <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => scanCameraRef.current?.click()}>Scan with camera</button>
           <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => scanRef.current?.click()}>Scan uploaded photo</button>
@@ -193,6 +201,7 @@ export function FuelForm({ purchase, onDone }) {
         {scanStatus && <p role="status" aria-live="polite">{scanStatus}</p>}
       </section>
       <EntryPeriod date={date} kind="fuel" />
+      <VehicleField value={vehicleId} onChange={setPicked} />
       <div className="row-2">
         <Field label="Date" error={errors.date}>
           {(id) => <input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}
@@ -280,7 +289,7 @@ export function FuelComparison({ claimPence, fuelPence, fuelCount }) {
 }
 
 export function FuelScreen({ claimStartDay }) {
-  const { liveFuel, liveTrips, liveRates, meta } = useStore();
+  const { liveFuel, liveTrips, liveRates, vehicles, meta } = useStore();
   const settings = meta.periodSettings?.days || {};
   const [month, setMonth] = useState(() => currentMonth(today(), "fuel", settings));
   const [editing, setEditing] = useState(null);
@@ -333,6 +342,7 @@ export function FuelScreen({ claimStartDay }) {
           <ul className="logbook">
             {m.rows.map((f) => {
               const p = pencePerLitre(f);
+              const vehicle = vehicles.length > 1 ? vehicleName(vehicles, f.vehicleId) : '';
               return (
                 <li key={f.id}>
                   <button type="button" className="trip-row" onClick={() => setEditing(f)}>
@@ -340,6 +350,7 @@ export function FuelScreen({ claimStartDay }) {
                     <span className="trip-desc">
                       {f.description || <span className="muted">Fuel</span>}
                       <span className="trip-meta">
+                        {vehicle && <span>{vehicle}</span>}
                         {f.litres ? <span className="num">{fmtLitres(f.litres)}{p ? `, ${fmtPpl(p)}` : ''}</span> : null}
                         <span>{f.receiptIds?.length ? plural(f.receiptIds.length, 'receipt') : <span className="warn-text">No receipt</span>}</span>
                         {f.dirty && <span className="pending-dot">Not synced</span>}

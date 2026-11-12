@@ -83,6 +83,7 @@ export function publicUser(u) {
     isActive: u.is_active,
     vehicle: u.vehicle,
     mustChangePassword: !!u.must_change_password,
+    twoFactor: !!u.totp_enabled,
     createdAt: u.created_at,
   };
 }

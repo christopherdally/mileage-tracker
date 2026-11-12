@@ -15,7 +15,7 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Content-Security-Policy':
-    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; " +
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; " +
     "worker-src 'self' blob:; connect-src 'self'; manifest-src 'self'; frame-ancestors 'none'; " +
     "base-uri 'self'; form-action 'self'",
 };
@@ -105,6 +105,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8',
+  '.gz': 'application/gzip',
 };
 
 /** Serve the built PWA with an index.html fallback for client-side routes. */
@@ -147,18 +148,4 @@ export function sendFile(res, file, downloadName) {
     res.on('finish', resolve);
     s.pipe(res);
   });
-}
-
-/** Fixed-window rate limiter keyed by client IP. */
-export function rateLimiter({ windowMs, limit }) {
-  const hits = new Map();
-  return (key) => {
-    const now = Date.now();
-    let h = hits.get(key);
-    if (!h || h.reset < now) h = { count: 0, reset: now + windowMs };
-    h.count++;
-    hits.set(key, h);
-    if (hits.size > 10000) for (const [k, v] of hits) if (v.reset < now) hits.delete(k);
-    if (h.count > limit) throw new HttpError(429, 'Too many attempts. Try again in a few minutes.');
-  };
 }

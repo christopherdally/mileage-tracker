@@ -59,7 +59,8 @@ export function Sheet({ open, onClose, title, children }) {
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog ref={ref} className="sheet" onClose={onClose}
+    // React passes a nested sheet's close event up to this one; only our own dialog closing counts.
+    <dialog ref={ref} className="sheet" onClose={(e) => { if (e.target === ref.current) onClose(); }}
       onClick={(e) => { if (e.target === ref.current) onClose(); }}>
       {open && (
         <div className="sheet-body">

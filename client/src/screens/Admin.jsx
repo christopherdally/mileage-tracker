@@ -22,6 +22,7 @@ function UserForm({ user, me, onDone }) {
   const [f, setF] = useState({
     username: '', password: '', displayName: user?.displayName || '', vehicle: user?.vehicle || '',
     isAdmin: user?.isAdmin || false, isActive: user ? user.isActive : true, mustChangePassword: true,
+    resetTwoFactor: false,
   });
   const [error, setError] = useState(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
@@ -32,8 +33,9 @@ function UserForm({ user, me, onDone }) {
     setError(null);
     try {
       if (user) {
-        const body = { displayName: f.displayName, vehicle: f.vehicle, isAdmin: f.isAdmin, isActive: f.isActive };
+        const body = { displayName: f.displayName, isAdmin: f.isAdmin, isActive: f.isActive };
         if (f.password) body.password = f.password;
+        if (f.resetTwoFactor) body.resetTwoFactor = true;
         await api('PATCH', `/users/${user.id}`, body);
         toast(f.password ? 'Saved. Their password is reset and they are signed out.' : 'User saved');
       } else {
@@ -61,7 +63,11 @@ function UserForm({ user, me, onDone }) {
         </Field>
       )}
       <Field label="Name">{(id) => <input id={id} value={f.displayName} onChange={set('displayName')} />}</Field>
-      <Field label="Vehicle">{(id) => <input id={id} value={f.vehicle} onChange={set('vehicle')} />}</Field>
+      {!user && (
+        <Field label="Vehicle" hint="Optional. Their first vehicle; they can add more in Settings.">
+          {(id) => <input id={id} value={f.vehicle} maxLength={100} onChange={set('vehicle')} placeholder="Ford Focus AB12 CDE" />}
+        </Field>
+      )}
       <Field label={user ? 'New password' : 'Password'} hint={user ? 'Leave empty to keep their current password. They will be asked to change it.' : 'At least 8 characters. Share it with them securely.'}>
         {(id) => <input id={id} type="text" autoComplete="off" value={f.password} onChange={set('password')} />}
       </Field>
@@ -71,6 +77,9 @@ function UserForm({ user, me, onDone }) {
       <label className="check"><input type="checkbox" checked={f.isAdmin} onChange={set('isAdmin')} /><span>Administrator</span></label>
       {user && !isMe && (
         <label className="check"><input type="checkbox" checked={f.isActive} onChange={set('isActive')} /><span>Can sign in</span></label>
+      )}
+      {user?.twoFactor && !isMe && (
+        <label className="check"><input type="checkbox" checked={f.resetTwoFactor} onChange={set('resetTwoFactor')} /><span>Turn off their two-step sign-in (if they've lost their phone and recovery codes)</span></label>
       )}
       {error && <p className="field-error" role="alert">{error}</p>}
       <div className="btn-row">
@@ -106,6 +115,7 @@ export function UsersScreen({ me, back }) {
                   <span className="rate-label">
                     {u.displayName || u.username}
                     {u.isAdmin && <em className="tag">Admin</em>}
+                    {u.twoFactor && <em className="tag">Two-step</em>}
                     {!u.isActive && <em className="tag tag-off">Can't sign in</em>}
                   </span>
                   <span className="muted">{u.username}, {plural(u.tripCount, 'journey')}{u.lastTrip ? `, last ${fmtDate(u.lastTrip)}` : ''}</span>
@@ -121,6 +131,67 @@ export function UsersScreen({ me, back }) {
       <Sheet open={!!editing} onClose={() => setEditing(null)} title={editing ? `Edit ${editing.username}` : ''}>
         {editing && <UserForm user={editing} me={me} onDone={done} />}
       </Sheet>
+    </div>
+  );
+}
+
+// ───────────────────────── Activity log ─────────────────────────
+
+/** One log entry as a plain sentence. */
+function describe({ action, target, detail }) {
+  switch (action) {
+    case 'user.create': return `Created the account ${target}${detail?.admin ? ' as an admin' : ''}`;
+    case 'user.update': return `Changed ${target}: ${(detail?.changes || []).join(', ')}`;
+    case 'user.delete': return `Deleted the account ${target} and its records`;
+    case 'backup.create': return `Made a backup${target ? ` (${target})` : ''}`;
+    case 'backup.download': return `Downloaded the backup ${target}`;
+    case 'backup.restore': return `Restored the database from ${target}`;
+    case 'auth.password_change': return `${target} changed their password`;
+    case 'auth.password_reset_request': return `A password reset email was sent to ${target}`;
+    case 'auth.password_reset': return `${target} set a new password from a reset email`;
+    case 'auth.2fa_enable': return `${target} turned on two-step sign-in`;
+    case 'auth.2fa_disable': return `${target} turned off two-step sign-in`;
+    case 'auth.recovery_code_used': return `${target} signed in with a recovery code`;
+    default: return `${action} ${target}`.trim();
+  }
+}
+
+export function ActivityScreen({ back }) {
+  const [entries, setEntries] = useState(null);
+  const [more, setMore] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async (before) => {
+    try {
+      const res = await api('GET', `/audit${before ? `?before=${before}` : ''}`);
+      setEntries((cur) => (before ? [...(cur || []), ...res.entries] : res.entries));
+      setMore(res.more);
+      setError(null);
+    } catch (e) { setError(errText(e)); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="screen">
+      <header className="screen-head">
+        <button type="button" className="back" onClick={back}>Settings</button>
+        <h1>Activity log</h1>
+      </header>
+      <p className="lede">Changes to accounts and backups, and security changes people made to their own account. Kept for two years.</p>
+      {error && <p className="notice notice-warn">{error}</p>}
+      {!entries && !error && <p className="muted">Loading…</p>}
+      {entries?.length === 0 && <p className="muted">Nothing has been recorded yet.</p>}
+      {entries?.length > 0 && (
+        <ul className="activity">
+          {entries.map((e) => (
+            <li key={e.id}>
+              <span>{describe(e)}</span>
+              <span className="muted small">{when(e.at)}{e.actor && e.actor !== e.target ? `, by ${e.actor}` : ''}{e.ip ? `, from ${e.ip}` : ''}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {more && <button type="button" className="btn btn-quiet btn-block mt" onClick={() => load(entries[entries.length - 1].id)}>Show earlier</button>}
     </div>
   );
 }

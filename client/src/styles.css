@@ -310,3 +310,14 @@ main#main { max-width: 640px; margin: 0 auto; }
 .compare-diff strong { color: var(--blue); font-size: 1.35rem; }
 .compare-diff.neg strong { color: var(--red); }
 .about-version { text-align: center; padding: 8px 0 24px; }
+
+/* Two-step sign-in */
+.qr { display: block; width: 200px; height: 200px; margin: 12px auto; border-radius: 8px; background: #fff; }
+.secret { font-size: 1.05rem; letter-spacing: 0.04em; word-break: break-word; user-select: all; }
+.codes { list-style: none; margin: 0 0 12px; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 1.05rem; user-select: all; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--blue); text-decoration: underline; cursor: pointer; font: inherit; }
+
+/* Activity log */
+.activity { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.activity li { padding: 10px 0; border-bottom: 1px solid var(--rule); }
+.activity li > span { display: block; }

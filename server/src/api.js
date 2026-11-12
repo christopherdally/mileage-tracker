@@ -1,9 +1,13 @@
 import fsp from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import crypto, { randomUUID } from 'node:crypto';
 import { validateReportUpload } from './report-upload.js';
 import { putReportObject, getReportObject, deleteReportObject, reportObjectKey } from './backup.js';
 import { query, withTx } from './db.js';
-import { HttpError, createRouter, rateLimiter, sendFile, sendBytes } from './http.js';
+import { HttpError, createRouter, sendFile, sendBytes } from './http.js';
+import { limitAttempts, refuseIfOver, hit, clearAttempts } from './ratelimit.js';
+import { newSecret, verifyCode, otpauthUri } from './totp.js';
+import { mailConfigured, appUrl, sendMail } from './mail.js';
+import { audit } from './audit.js';
 import {
   authenticate, authenticateAdmin, hashPassword, verifyPassword, signToken, publicUser, DUMMY_HASH,
 } from './auth.js';
@@ -25,10 +29,33 @@ const checkPassword = (p) => {
 // ───────────────────────── Auth & profile ─────────────────────────
 // There is deliberately no sign-up endpoint. Accounts are created by an admin.
 
-const loginLimit = rateLimiter({ windowMs: 15 * 60 * 1000, limit: 20 });
+const MINUTES = 60 * 1000;
+const LOGIN_LIMIT = { windowMs: 15 * MINUTES, limit: 20 };       // attempts per IP address
+const CODE_LIMIT = { windowMs: 15 * MINUTES, limit: 10 };        // wrong two-step codes per account
+const RESET_IP_LIMIT = { windowMs: 15 * MINUTES, limit: 10 };    // reset requests and attempts per IP address
+const RESET_USER_LIMIT = { windowMs: 60 * MINUTES, limit: 3 };   // reset emails per account
+const RESET_TTL_MINUTES = 60;
+const sha256 = (v) => crypto.createHash('sha256').update(String(v)).digest('hex');
+
+/** Check a two-step code: one from the authenticator app, or a one-off recovery code. */
+async function checkSecondStep(user, code) {
+  const key = `2fa:${user.id}`;
+  await refuseIfOver(key, CODE_LIMIT);
+  const step = verifyCode(user.totp_secret, code, Number(user.totp_last_step));
+  if (step !== null) {
+    await query('UPDATE users SET totp_last_step=$1 WHERE id=$2', [step, user.id]);
+    return 'app';
+  }
+  const typed = sha256(String(code ?? '').toLowerCase().replace(/[^a-z0-9]/g, ''));
+  const { rows } = await query(
+    `UPDATE users SET recovery_codes = recovery_codes - $1::text WHERE id=$2 AND recovery_codes ? $1::text RETURNING id`, [typed, user.id]);
+  if (rows.length) return 'recovery';
+  await hit(key, CODE_LIMIT.windowMs);
+  return null;
+}
 
 api.post('/api/auth/login', async ({ body, ip }) => {
-  loginLimit(ip);
+  await limitAttempts(`login:${ip}`, LOGIN_LIMIT);
   const username = str(body.username, 100).trim().toLowerCase();
   const password = String(body.password || '');
   if (!username || !password) throw new HttpError(400, 'Enter your username and password');
@@ -36,7 +63,62 @@ api.post('/api/auth/login', async ({ body, ip }) => {
   const user = rows[0];
   const ok = await verifyPassword(password, user?.password_hash || DUMMY_HASH);
   if (!user || !ok || !user.is_active) throw new HttpError(401, 'Wrong username or password');
+  if (user.totp_enabled) {
+    // An error status, so a copy of the app from before two-step sign-in shows the message rather than signing in.
+    if (!body.code) return { status: 401, body: { error: 'Enter the code from your authenticator app', twoFactorRequired: true } };
+    const used = await checkSecondStep(user, body.code);
+    if (!used) return { status: 401, body: { error: "That code isn't right. Check the app and try again.", twoFactorRequired: true } };
+    if (used === 'recovery') await audit(user, 'auth.recovery_code_used', { target: user.username, ip });
+  }
   return { token: signToken(user), user: publicUser(user) };
+});
+
+/** What the sign-in screen can offer on this server. */
+api.get('/api/auth/options', async () => ({ passwordReset: mailConfigured() }));
+
+// ───────────────────────── Password reset by email ─────────────────────────
+// Only for accounts whose username is an email address. The reply never says whether the account exists.
+
+api.post('/api/auth/forgot', async ({ body, ip }) => {
+  if (!mailConfigured()) throw new HttpError(404, "Password reset by email isn't set up on this server. Ask your administrator.");
+  await limitAttempts(`forgot:${ip}`, RESET_IP_LIMIT);
+  const username = str(body.username, 100).trim().toLowerCase();
+  const { rows } = await query('SELECT * FROM users WHERE username = $1 AND is_active', [username]);
+  const user = rows[0];
+  if (user && user.username.includes('@') && (await hit(`forgot-user:${user.id}`, RESET_USER_LIMIT.windowMs)) <= RESET_USER_LIMIT.limit) {
+    const token = crypto.randomBytes(32).toString('base64url');
+    await query(`INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES ($1,$2, now() + make_interval(mins => $3))`,
+      [sha256(token), user.id, RESET_TTL_MINUTES]);
+    await audit(null, 'auth.password_reset_request', { target: user.username, ip });
+    // Not awaited, so a slow mail server doesn't give away that there was an account to email.
+    sendMail({
+      to: user.username,
+      subject: 'Reset your Mileage Tracker password',
+      text: `Someone asked to reset the password for ${user.username} on Mileage Tracker.\n\n`
+        + `Choose a new password here (the link works once, for ${RESET_TTL_MINUTES} minutes):\n${appUrl()}/#reset?token=${token}\n\n`
+        + "If that wasn't you, ignore this email and your password stays as it is.\n",
+    }).catch((e) => console.error('Could not send the password reset email:', e.message));
+  }
+  return { ok: true };
+});
+
+api.post('/api/auth/reset', async ({ body, ip }) => {
+  await limitAttempts(`reset:${ip}`, RESET_IP_LIMIT);
+  checkPassword(body.newPassword);
+  const user = await withTx(async (c) => {
+    const { rows } = await c.query(
+      `DELETE FROM password_resets r USING users u
+       WHERE r.token_hash=$1 AND r.expires_at > now() AND u.id = r.user_id AND u.is_active RETURNING u.*`, [sha256(body.token)]);
+    if (!rows[0]) throw new HttpError(400, 'That reset link has expired or already been used. Ask for a new one.');
+    // Any other outstanding links stop working too, and every device is signed out.
+    await c.query('DELETE FROM password_resets WHERE user_id=$1', [rows[0].id]);
+    await c.query(
+      `UPDATE users SET password_hash=$1, token_version=token_version+1, must_change_password=false, updated_at=now() WHERE id=$2`,
+      [await hashPassword(String(body.newPassword)), rows[0].id]);
+    return rows[0];
+  });
+  await audit(user, 'auth.password_reset', { target: user.username, ip });
+  return { ok: true };
 });
 
 api.get('/api/auth/me', async (req) => ({ user: publicUser(await authenticate(req)) }));
@@ -65,7 +147,54 @@ api.post('/api/auth/password', async (req) => {
      WHERE id=$2 RETURNING *`,
     [await hashPassword(String(req.body.newPassword)), me.id]
   );
+  await audit(me, 'auth.password_change', { target: me.username, ip: req.ip });
   return { token: signToken(rows[0]), user: publicUser(rows[0]) };
+});
+
+// ───────────────────────── Two-step sign-in ─────────────────────────
+
+const RECOVERY_CODES = 10;
+const needPassword = async (me, password) => {
+  if (!(await verifyPassword(String(password || ''), me.password_hash))) throw new HttpError(400, 'That password is wrong');
+};
+
+/** Start setup: make a secret for the authenticator app. Nothing changes at sign-in until a code confirms it. */
+api.post('/api/auth/2fa/setup', async (req) => {
+  const me = await authenticate(req);
+  if (me.totp_enabled) throw new HttpError(400, 'Two-step sign-in is already on');
+  const secret = newSecret();
+  await query('UPDATE users SET totp_secret=$1 WHERE id=$2', [secret, me.id]);
+  return { secret, uri: otpauthUri(secret, me.username) };
+});
+
+api.post('/api/auth/2fa/enable', async (req) => {
+  const me = await authenticate(req);
+  if (me.totp_enabled) throw new HttpError(400, 'Two-step sign-in is already on');
+  if (!me.totp_secret) throw new HttpError(400, 'Start setup again');
+  await refuseIfOver(`2fa:${me.id}`, CODE_LIMIT);
+  const step = verifyCode(me.totp_secret, req.body.code);
+  if (step === null) {
+    await hit(`2fa:${me.id}`, CODE_LIMIT.windowMs);
+    throw new HttpError(400, "That code isn't right. Check the app and try again.");
+  }
+  // Shown once. Formatted like abcd-efgh-ijkl; stored as hashes of the letters and digits only.
+  const codes = Array.from({ length: RECOVERY_CODES }, () => crypto.randomBytes(8).toString('hex').slice(0, 12));
+  const { rows } = await query(
+    'UPDATE users SET totp_enabled=true, totp_last_step=$1, recovery_codes=$2::jsonb, updated_at=now() WHERE id=$3 RETURNING *',
+    [step, JSON.stringify(codes.map(sha256)), me.id]);
+  await audit(me, 'auth.2fa_enable', { target: me.username, ip: req.ip });
+  return { user: publicUser(rows[0]), recoveryCodes: codes.map((c) => c.match(/.{4}/g).join('-')) };
+});
+
+api.post('/api/auth/2fa/disable', async (req) => {
+  const me = await authenticate(req);
+  await needPassword(me, req.body.password);
+  const { rows } = await query(
+    `UPDATE users SET totp_enabled=false, totp_secret=NULL, totp_last_step=0, recovery_codes='[]'::jsonb, updated_at=now()
+     WHERE id=$1 RETURNING *`, [me.id]);
+  await clearAttempts(`2fa:${me.id}`);
+  if (me.totp_enabled) await audit(me, 'auth.2fa_disable', { target: me.username, ip: req.ip });
+  return { user: publicUser(rows[0]) };
 });
 
 // ───────────────────────── User administration ─────────────────────────
@@ -92,19 +221,27 @@ api.get('/api/users', async (req) => {
 });
 
 api.post('/api/users', async (req) => {
-  await authenticateAdmin(req);
+  const me = await authenticateAdmin(req);
   const b = req.body;
   const username = str(b.username, 100).trim().toLowerCase();
   if (!USERNAME_RE.test(username)) throw new HttpError(400, 'Use an email address or a username of letters, numbers and . _ -');
   checkPassword(b.password);
   try {
-    const { rows } = await query(
-      `INSERT INTO users (username, display_name, password_hash, is_admin, vehicle, must_change_password)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [username, str(b.displayName) || username, await hashPassword(String(b.password)), !!b.isAdmin, str(b.vehicle),
-       b.mustChangePassword !== false]
-    );
-    return { status: 201, body: { user: publicUser(rows[0]) } };
+    const vehicle = str(b.vehicle).trim();
+    const user = await withTx(async (c) => {
+      const { rows } = await c.query(
+        `INSERT INTO users (username, display_name, password_hash, is_admin, vehicle, must_change_password)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [username, str(b.displayName) || username, await hashPassword(String(b.password)), !!b.isAdmin, vehicle,
+         b.mustChangePassword !== false]
+      );
+      if (vehicle) {
+        await c.query('INSERT INTO vehicles (id, user_id, name, client_updated_at) VALUES ($1,$2,$3,now())', [randomUUID(), rows[0].id, vehicle]);
+      }
+      return rows[0];
+    });
+    await audit(me, 'user.create', { target: user.username, detail: { admin: user.is_admin }, ip: req.ip });
+    return { status: 201, body: { user: publicUser(user) } };
   } catch (e) {
     if (e.code === '23505') throw new HttpError(409, 'That username is already taken');
     throw e;
@@ -130,14 +267,27 @@ api.patch('/api/users/:id', async (req) => {
     bump = 1;
   }
   if (u.is_active && !isActive) bump = 1; // disabling signs them out everywhere
+  // For someone who has lost their authenticator app and recovery codes.
+  const resetTwoStep = !!b.resetTwoFactor && u.totp_enabled;
 
   const { rows } = await query(
     `UPDATE users SET display_name=$1, vehicle=$2, is_admin=$3, is_active=$4, password_hash=$5,
        token_version=token_version+$6, must_change_password = must_change_password OR $8,
+       totp_enabled = totp_enabled AND NOT $9, totp_secret = CASE WHEN $9 THEN NULL ELSE totp_secret END,
+       recovery_codes = CASE WHEN $9 THEN '[]'::jsonb ELSE recovery_codes END,
        updated_at=now() WHERE id=$7 RETURNING *`,
     [str(b.displayName ?? u.display_name), str(b.vehicle ?? u.vehicle), isAdmin, isActive, hash, bump, u.id,
-     !!b.password && u.id !== me.id]
+     !!b.password && u.id !== me.id, resetTwoStep]
   );
+  if (resetTwoStep) await clearAttempts(`2fa:${u.id}`);
+  const changes = [
+    b.password && 'password reset',
+    resetTwoStep && 'two-step sign-in turned off',
+    isAdmin !== u.is_admin && (isAdmin ? 'made an admin' : 'no longer an admin'),
+    isActive !== u.is_active && (isActive ? 'sign-in allowed' : 'sign-in blocked'),
+    rows[0].display_name !== u.display_name && 'name changed',
+  ].filter(Boolean);
+  if (changes.length) await audit(me, 'user.update', { target: u.username, detail: { changes }, ip: req.ip });
   return { user: publicUser(rows[0]) };
 });
 
@@ -149,6 +299,7 @@ api.delete('/api/users/:id', async (req) => {
     throw new HttpError(400, 'There must always be at least one active admin');
   }
   await query('DELETE FROM users WHERE id=$1', [u.id]); // cascades to trips and rates
+  await audit(me, 'user.delete', { target: u.username, ip: req.ip });
   return { ok: true };
 });
 
@@ -160,8 +311,21 @@ const isDate = (v) => typeof v === 'string' && DATE_RE.test(v) && !Number.isNaN(
 const isoOrNull = (v) => { const t = Date.parse(v); return Number.isNaN(t) ? null : new Date(t).toISOString(); };
 const finite = (v, max) => v === null || (Number.isFinite(v) && v >= 0 && v <= max);
 
+// undefined = a device that doesn't know about vehicles yet (keep what's stored); null = no vehicle.
+const vehicleRef = (v) => (v === undefined ? undefined : v === null || v === '' ? null : typeof v === 'string' && UUID_RE.test(v) ? v.toLowerCase() : false);
+
+function cleanVehicle(v) {
+  if (!v || !UUID_RE.test(v.id)) return null;
+  const name = str(v.name).trim();
+  const updatedAt = isoOrNull(v.updatedAt);
+  if (!name || !updatedAt) return null;
+  return { id: v.id.toLowerCase(), name, deleted: !!v.deleted, updatedAt };
+}
+
 function cleanTrip(t) {
   if (!t || !UUID_RE.test(t.id) || !isDate(t.tripDate)) return null;
+  const vehicleId = vehicleRef(t.vehicleId);
+  if (vehicleId === false) return null;
   const miles = num(t.miles);
   const rate = num(t.rateOverridePence);
   const so = num(t.startOdometer);
@@ -171,7 +335,7 @@ function cleanTrip(t) {
   if (!updatedAt) return null;
   return {
     id: t.id.toLowerCase(), tripDate: t.tripDate, description: str(t.description, 500),
-    startOdometer: so, endOdometer: eo, miles, rateOverridePence: rate, deleted: !!t.deleted, updatedAt,
+    startOdometer: so, endOdometer: eo, miles, rateOverridePence: rate, vehicleId, deleted: !!t.deleted, updatedAt,
   };
 }
 
@@ -197,22 +361,28 @@ function cleanFuel(f) {
   if (!finite(litres, 10000) || !finite(odo, 1e8) || !updatedAt) return null;
   const ids = Array.isArray(f.receiptIds) ? f.receiptIds : [];
   if (ids.length > 20 || !ids.every((x) => typeof x === 'string' && UUID_RE.test(x))) return null;
+  const vehicleId = vehicleRef(f.vehicleId);
+  if (vehicleId === false) return null;
   return {
     id: f.id.toLowerCase(), purchaseDate: f.purchaseDate, amountPence: amount, litres, odometer: odo,
-    description: str(f.description, 300), receiptIds: ids.map((x) => x.toLowerCase()), deleted: !!f.deleted, updatedAt,
+    description: str(f.description, 300), receiptIds: ids.map((x) => x.toLowerCase()),
+    vehicleId, deleted: !!f.deleted, updatedAt,
   };
 }
 
 const fuelOut = (f) => ({
   id: f.id, purchaseDate: f.purchase_date, amountPence: f.amount_pence, litres: f.litres, odometer: f.odometer,
-  description: f.description, receiptIds: f.receipt_ids || [], deleted: f.deleted,
+  description: f.description, receiptIds: f.receipt_ids || [], vehicleId: f.vehicle_id, deleted: f.deleted,
   updatedAt: new Date(f.client_updated_at).toISOString(),
 });
 
 const tripOut = (t) => ({
   id: t.id, tripDate: t.trip_date, description: t.description, startOdometer: t.start_odometer,
   endOdometer: t.end_odometer, miles: t.miles, rateOverridePence: t.rate_override_pence,
-  deleted: t.deleted, updatedAt: new Date(t.client_updated_at).toISOString(),
+  vehicleId: t.vehicle_id, deleted: t.deleted, updatedAt: new Date(t.client_updated_at).toISOString(),
+});
+const vehicleOut = (v) => ({
+  id: v.id, name: v.name, deleted: v.deleted, updatedAt: new Date(v.client_updated_at).toISOString(),
 });
 const rateOut = (p) => ({
   id: p.id, label: p.label, pencePerMile: p.pence_per_mile, startDate: p.start_date, endDate: p.end_date,
@@ -221,8 +391,8 @@ const rateOut = (p) => ({
 
 /**
  * Two-way sync.
- *   Request: { epoch, cursor, trips: [...], rates: [...] }  — this device's unsynced changes
- *   Reply:   { epoch, reset, cursor, trips, rates, rejected } — everything changed on the server after `cursor`
+ *   Request: { epoch, cursor, trips, rates, fuel, vehicles }  — this device's unsynced changes
+ *   Reply:   { epoch, reset, cursor, trips, rates, fuel, vehicles, rejected } — everything changed on the server after `cursor`
  * Conflicts: the most recent edit wins (by the editing device's updatedAt). Deletes are tombstones
  * (deleted=true) so other devices find out. `reset` means the server was restored from a backup:
  * the device should throw away its synced copy and keep only what this reply contains.
@@ -232,7 +402,8 @@ api.post('/api/sync', async (req) => {
   const inTrips = Array.isArray(req.body.trips) ? req.body.trips : [];
   const inRates = Array.isArray(req.body.rates) ? req.body.rates : [];
   const inFuel = Array.isArray(req.body.fuel) ? req.body.fuel : [];
-  if (inTrips.length + inRates.length + inFuel.length > MAX_BATCH) throw new HttpError(413, `Send at most ${MAX_BATCH} changes per sync`);
+  const inVehicles = Array.isArray(req.body.vehicles) ? req.body.vehicles : [];
+  if (inTrips.length + inRates.length + inFuel.length + inVehicles.length > MAX_BATCH) throw new HttpError(413, `Send at most ${MAX_BATCH} changes per sync`);
   let cursor = Math.max(0, Math.floor(Number(req.body.cursor) || 0));
   const rejected = [];
 
@@ -255,6 +426,20 @@ api.post('/api/sync', async (req) => {
     const reset = req.body.epoch !== epoch;
     if (reset) cursor = 0;
 
+    for (const raw of inVehicles) {
+      const v = cleanVehicle(raw);
+      if (!v) { rejected.push({ kind: 'vehicle', id: raw?.id ?? null }); continue; }
+      await c.query(
+        `INSERT INTO vehicles (id,user_id,name,deleted,client_updated_at)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (id) DO UPDATE SET
+           name=EXCLUDED.name, deleted=EXCLUDED.deleted, client_updated_at=EXCLUDED.client_updated_at,
+           server_seq=nextval('sync_seq')
+         WHERE vehicles.user_id = EXCLUDED.user_id
+           AND EXCLUDED.client_updated_at >= vehicles.client_updated_at`,
+        [v.id, me.id, v.name, v.deleted, v.updatedAt]
+      );
+    }
     for (const raw of inRates) {
       const p = cleanRate(raw);
       if (!p) { rejected.push({ kind: 'rate', id: raw?.id ?? null }); continue; }
@@ -274,9 +459,10 @@ api.post('/api/sync', async (req) => {
       const t = cleanTrip(raw);
       if (!t) { rejected.push({ kind: 'trip', id: raw?.id ?? null }); continue; }
       await c.query(
-        `INSERT INTO trips (id,user_id,trip_date,description,start_odometer,end_odometer,miles,rate_override_pence,deleted,client_updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        `INSERT INTO trips (id,user_id,trip_date,description,start_odometer,end_odometer,miles,rate_override_pence,deleted,client_updated_at,vehicle_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (id) DO UPDATE SET
+           vehicle_id=CASE WHEN $12 THEN EXCLUDED.vehicle_id ELSE trips.vehicle_id END,
            trip_date=EXCLUDED.trip_date, description=EXCLUDED.description,
            start_odometer=EXCLUDED.start_odometer, end_odometer=EXCLUDED.end_odometer, miles=EXCLUDED.miles,
            rate_override_pence=EXCLUDED.rate_override_pence, deleted=EXCLUDED.deleted,
@@ -284,7 +470,7 @@ api.post('/api/sync', async (req) => {
          WHERE trips.user_id = EXCLUDED.user_id
            AND EXCLUDED.client_updated_at >= trips.client_updated_at`,
         [t.id, me.id, t.tripDate, t.description, t.startOdometer, t.endOdometer, t.miles,
-         t.rateOverridePence, t.deleted, t.updatedAt]
+         t.rateOverridePence, t.deleted, t.updatedAt, t.vehicleId ?? null, t.vehicleId !== undefined]
       );
     }
 
@@ -292,26 +478,29 @@ api.post('/api/sync', async (req) => {
       const f = cleanFuel(raw);
       if (!f) { rejected.push({ kind: 'fuel', id: raw?.id ?? null }); continue; }
       await c.query(
-        `INSERT INTO fuel_purchases (id,user_id,purchase_date,amount_pence,litres,odometer,description,receipt_ids,deleted,client_updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
+        `INSERT INTO fuel_purchases (id,user_id,purchase_date,amount_pence,litres,odometer,description,receipt_ids,deleted,client_updated_at,vehicle_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11)
          ON CONFLICT (id) DO UPDATE SET
+           vehicle_id=CASE WHEN $12 THEN EXCLUDED.vehicle_id ELSE fuel_purchases.vehicle_id END,
            purchase_date=EXCLUDED.purchase_date, amount_pence=EXCLUDED.amount_pence, litres=EXCLUDED.litres,
            odometer=EXCLUDED.odometer, description=EXCLUDED.description, receipt_ids=EXCLUDED.receipt_ids,
            deleted=EXCLUDED.deleted, client_updated_at=EXCLUDED.client_updated_at, server_seq=nextval('sync_seq')
          WHERE fuel_purchases.user_id = EXCLUDED.user_id
            AND EXCLUDED.client_updated_at >= fuel_purchases.client_updated_at`,
         [f.id, me.id, f.purchaseDate, f.amountPence, f.litres, f.odometer, f.description,
-         JSON.stringify(f.receiptIds), f.deleted, f.updatedAt]
+         JSON.stringify(f.receiptIds), f.deleted, f.updatedAt, f.vehicleId ?? null, f.vehicleId !== undefined]
       );
     }
 
     const trips = await c.query('SELECT * FROM trips WHERE user_id=$1 AND server_seq > $2 ORDER BY server_seq', [me.id, cursor]);
     const fuel = await c.query('SELECT * FROM fuel_purchases WHERE user_id=$1 AND server_seq > $2 ORDER BY server_seq', [me.id, cursor]);
     const rates = await c.query('SELECT * FROM rate_periods WHERE user_id=$1 AND server_seq > $2 ORDER BY server_seq', [me.id, cursor]);
-    const next = Math.max(cursor, ...[...trips.rows, ...rates.rows, ...fuel.rows].map((x) => Number(x.server_seq)));
+    const vehicles = await c.query('SELECT * FROM vehicles WHERE user_id=$1 AND server_seq > $2 ORDER BY server_seq', [me.id, cursor]);
+    const next = Math.max(cursor, ...[...trips.rows, ...rates.rows, ...fuel.rows, ...vehicles.rows].map((x) => Number(x.server_seq)));
     return {
       epoch, reset, cursor: next, periodSettings,
       trips: trips.rows.map(tripOut), rates: rates.rows.map(rateOut), fuel: fuel.rows.map(fuelOut),
+      vehicles: vehicles.rows.map(vehicleOut),
     };
   });
   return { ...out, rejected };
@@ -387,13 +576,18 @@ api.post('/api/backups', async (req) => {
   const me = await authenticateAdmin(req);
   let targets = Array.isArray(req.body.targets) ? req.body.targets.filter((t) => t === 'local' || t === 's3') : [];
   if (!targets.length) targets = defaultTargets();
-  return exclusive(async () => ({ results: await runBackup({ targets, createdBy: me.username }) }));
+  return exclusive(async () => {
+    const results = await runBackup({ targets, createdBy: me.username });
+    await audit(me, 'backup.create', { target: results[0]?.filename || '', detail: { results: results.map((r) => `${r.target}: ${r.status}`) }, ip: req.ip });
+    return { results };
+  });
 });
 
 api.get('/api/backups/:id/download', async (req, res) => {
-  await authenticateAdmin(req);
+  const me = await authenticateAdmin(req);
   const b = await findBackup(req.params.id);
   const file = await fetchBackupFile(b);
+  await audit(me, 'backup.download', { target: b.filename, ip: req.ip });
   try {
     await sendFile(res, file.path, b.filename);
   } finally {
@@ -411,11 +605,21 @@ api.post('/api/backups/:id/restore', async (req) => {
     const pre = await runBackup({ targets: defaultTargets(), createdBy: `${me.username} (before restore)` });
     if (!pre.some((r) => r.status === 'ok')) throw new HttpError(500, 'Could not take a safety backup, restore cancelled');
     await restoreBackup(b);
+    await audit(me, 'backup.restore', { target: b.filename, ip: req.ip });
     return { ok: true };
   });
 });
 
 
+// ───────────────────────── Activity log (admin) ─────────────────────────
+
+api.get('/api/audit', async (req) => {
+  await authenticateAdmin(req);
+  const before = Number(req.url.searchParams.get('before')) || null;
+  const { rows } = await query(
+    'SELECT id, at, actor, action, target, detail, ip FROM audit_log WHERE ($1::bigint IS NULL OR id < $1) ORDER BY id DESC LIMIT 101', [before]);
+  return { entries: rows.slice(0, 100).map((r) => ({ ...r, id: Number(r.id) })), more: rows.length > 100 };
+});
 
 // Personal report archives. Authentication and ownership are required on every operation.
 const archiveMonthNow = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit' }).format(new Date());

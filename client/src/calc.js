@@ -31,10 +31,11 @@ const penceFor = (milesTenths, pence) => Math.round((milesTenths * pence) / 10 +
  * Build a claim report for a date range.
  * Trips are grouped by the rate that applies to them; each group's amount is
  * total miles × rate, rounded to the penny once. The claim total is the sum of group amounts.
+ * Pass vehicleId to claim for one vehicle only.
  */
-export function buildReport({ trips, rates, from, to }) {
+export function buildReport({ trips, rates, from, to, vehicleId = null }) {
   const rows = live(trips)
-    .filter((t) => t.tripDate >= from && t.tripDate <= to)
+    .filter((t) => t.tripDate >= from && t.tripDate <= to && (!vehicleId || t.vehicleId === vehicleId))
     .sort((a, b) => (a.tripDate === b.tripDate ? (a.startOdometer ?? 0) - (b.startOdometer ?? 0) : a.tripDate < b.tripDate ? -1 : 1));
 
   const groups = new Map();
@@ -71,6 +72,16 @@ export function buildReport({ trips, rates, from, to }) {
     .map((g) => ({ ...g, miles: g.milesTenths / 10, amountPence: g.pence === null ? 0 : penceFor(g.milesTenths, g.pence) }))
     .sort((a, b) => (a.source === 'none') - (b.source === 'none') || (a.firstDate < b.firstDate ? -1 : 1));
 
+  // Miles per vehicle ('' = journeys with no vehicle recorded), in order of first use.
+  const perVehicle = new Map();
+  for (const t of rows) {
+    const k = t.vehicleId || '';
+    if (!perVehicle.has(k)) perVehicle.set(k, { vehicleId: t.vehicleId || null, tripCount: 0, milesTenths: 0 });
+    const v = perVehicle.get(k);
+    v.tripCount += 1;
+    v.milesTenths += tenths(t.miles);
+  }
+
   const totalTenths = groupList.reduce((s, g) => s + g.milesTenths, 0);
   const unratedMiles = groupList.filter((g) => g.source === 'none').reduce((s, g) => s + g.milesTenths, 0) / 10;
 
@@ -84,6 +95,7 @@ export function buildReport({ trips, rates, from, to }) {
     totalMiles: totalTenths / 10,
     totalPence: groupList.reduce((s, g) => s + g.amountPence, 0),
     unratedMiles,
+    byVehicle: [...perVehicle.values()].map(({ milesTenths, ...v }) => ({ ...v, miles: milesTenths / 10 })),
   };
 }
 
@@ -106,9 +118,9 @@ export function rateIssues(rates) {
 }
 
 /** Fuel bought in a date range, for comparing money paid out with the mileage claimed. */
-export function fuelSummary({ fuel, from, to }) {
+export function fuelSummary({ fuel, from, to, vehicleId = null }) {
   const lines = live(fuel)
-    .filter((f) => f.purchaseDate >= from && f.purchaseDate <= to)
+    .filter((f) => f.purchaseDate >= from && f.purchaseDate <= to && (!vehicleId || f.vehicleId === vehicleId))
     .sort((a, b) => (a.purchaseDate < b.purchaseDate ? -1 : a.purchaseDate > b.purchaseDate ? 1 : 0));
   const totalPence = lines.reduce((s, f) => s + Math.round(Number(f.amountPence) || 0), 0);
   const withLitres = lines.filter((f) => Number(f.litres) > 0);

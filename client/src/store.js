@@ -2,13 +2,15 @@
 // and is mirrored in memory for instant reads. Edits are marked `dirty` until the server has them.
 import { useSyncExternalStore } from 'react';
 
-const STORES = ['trips', 'rates', 'fuel', 'meta'];
-const KEYED = ['trips', 'rates', 'fuel', 'meta', 'files'];
+const STORES = ['trips', 'rates', 'fuel', 'vehicles', 'meta'];
+const KEYED = [...STORES, 'files'];
+// Bump when a release adds a kind of synced row, so devices fetch rows an older copy of the app skipped past.
+const DATA_VERSION = 3;
 
 function idbOpen(name) {
   return new Promise((resolve, reject) => {
-    // v2 added fuel purchases and receipt files.
-    const req = indexedDB.open(name, 2);
+    // v2 added fuel purchases and receipt files; v3 added vehicles.
+    const req = indexedDB.open(name, 3);
     req.onupgradeneeded = () => {
       const db = req.result;
       for (const s of KEYED) {
@@ -29,6 +31,7 @@ export class Store {
     this.trips = new Map();
     this.rates = new Map();
     this.fuel = new Map();
+    this.vehicles = new Map();
     this.files = new Map(); // receipt metadata only: { id, mime, size, uploaded, failed }
     this.meta = {};
     this.version = 0;
@@ -40,12 +43,17 @@ export class Store {
     this.db = await idbOpen(`mileage-${userId}`);
     const tx = this.db.transaction([...STORES, 'files'], 'readonly');
     // Issue every read before awaiting, so the transaction stays active.
-    const [trips, rates, fuel, meta, files] = await Promise.all([...STORES, 'files'].map((s) => reqP(tx.objectStore(s).getAll())));
+    const [trips, rates, fuel, vehicles, meta, files] = await Promise.all([...STORES, 'files'].map((s) => reqP(tx.objectStore(s).getAll())));
     this.trips = new Map(trips.map((t) => [t.id, t]));
     this.rates = new Map(rates.map((r) => [r.id, r]));
     this.fuel = new Map(fuel.map((f) => [f.id, f]));
+    this.vehicles = new Map(vehicles.map((v) => [v.id, v]));
     this.files = new Map(files.map(({ blob, ...m }) => [m.id, m])); // eslint-disable-line no-unused-vars
     this.meta = Object.fromEntries(meta.map((m) => [m.key, m.value]));
+    if ((this.meta.dataVersion || 0) < DATA_VERSION) {
+      if (this.meta.cursor) await this.setMeta('cursor', 0);
+      await this.setMeta('dataVersion', DATA_VERSION);
+    }
     this.emit();
   }
 
@@ -66,6 +74,7 @@ export class Store {
       const trips = [...this.trips.values()];
       const rates = [...this.rates.values()];
       const fuel = [...this.fuel.values()];
+      const vehicles = [...this.vehicles.values()];
       const files = [...this.files.values()];
       this.snapshot = {
         version: this.version,
@@ -75,9 +84,12 @@ export class Store {
         liveTrips: trips.filter((t) => !t.deleted),
         liveRates: rates.filter((r) => !r.deleted),
         liveFuel: fuel.filter((f) => !f.deleted),
+        // Includes removed vehicles, so old entries can still show which one they used.
+        vehicles,
+        liveVehicles: vehicles.filter((v) => !v.deleted).sort((a, b) => a.name.localeCompare(b.name)),
         files: this.files,
         pendingFiles: files.filter((f) => !f.uploaded && !f.failed).length,
-        pending: [...trips, ...rates, ...fuel].filter((r) => r.dirty).length + files.filter((f) => !f.uploaded && !f.failed).length,
+        pending: [...trips, ...rates, ...fuel, ...vehicles].filter((r) => r.dirty).length + files.filter((f) => !f.uploaded && !f.failed).length,
         meta: this.meta,
       };
     }

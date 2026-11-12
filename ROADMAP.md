@@ -21,21 +21,12 @@ idea while reading the code.
 
 ## Accounts & security
 
-- **Self-service password reset.** Today only an admin can reset a password
-  (`npm run create-admin`, or Settings → Users). There's no "forgotten
-  password" email flow, which also means the app currently has no outbound
-  email integration at all.
-- **Two-factor authentication.** Sessions are long-lived (`SESSION_DAYS`,
-  default 60) to support offline use, which raises the value of an optional
-  second factor for admins in particular.
-- **Audit log for admin actions.** User creation/deletion, password resets,
-  and backup restores aren't currently logged anywhere an admin can review
-  later.
-- **Distributed-safe rate limiting.** The login rate limiter
-  (`server/src/http.js`) is an in-memory fixed window keyed by IP. It resets
-  on restart and won't coordinate across replicas if the app is ever scaled
-  horizontally — fine for a single-container deployment, a gap if that
-  changes.
+- **Password reset for plain-username accounts.** "Forgot your password?"
+  emails the username, so it only works when the username is an email
+  address. A separate, optional email address per user would cover the
+  rest; today an admin resets those passwords.
+- **Passkeys.** Two-step sign-in uses authenticator-app codes. Passkeys
+  (WebAuthn) would be phishing-resistant and quicker on a phone.
 
 ## Money & locale
 
@@ -45,16 +36,9 @@ idea while reading the code.
   per-user or per-org currency setting threaded through calc, PDF and UI.
 - **Localization (i18n).** All UI strings and the generated PDF are English
   only; there's no translation layer.
-- **Multiple vehicles per user.** The schema stores a single free-text
-  `vehicle` field per user (`server/src/schema.sql`). Drivers who use more
-  than one vehicle for business journeys currently have to record it in the
-  journey description instead of selecting a vehicle per trip.
 
 ## Reporting & export
 
-- **CSV/spreadsheet export.** Journeys, fuel and claim data can currently
-  only leave the app as a formatted PDF. A raw CSV export would make it
-  easier to feed into accounting software or a spreadsheet.
 - **Per-employer/cost-centre tagging.** Useful for anyone claiming mileage
   from more than one organisation in the same period.
 - **Year-end / tax-year summary report**, distinct from the rolling claim
@@ -62,14 +46,11 @@ idea while reading the code.
 
 ## Quality & operations
 
-- **Continuous integration.** There's no CI configuration (`.github/workflows`
-  is empty) — `npm test` in `client/` and `server/` only runs locally today.
-  Running the existing unit and end-to-end test suites on every push/PR
-  would catch regressions earlier.
 - **Linting.** No ESLint/Prettier configuration is present, so style and
-  common bug patterns aren't checked automatically.
+  common bug patterns aren't checked automatically. It could run alongside
+  the tests in `.github/workflows/ci.yml`.
 - **Server-side test coverage for auth edge cases.** `server/test/` covers
-  the happy paths (login, fuel sync, receipts) well; token expiry, replay,
+  the happy paths (login, sync, fuel, receipts, vehicles) well; token expiry, replay,
   and the admin-deactivation-signs-out-other-devices path don't have
   dedicated tests yet.
 - **Health/readiness metrics.** `/api/health` reports whether the database

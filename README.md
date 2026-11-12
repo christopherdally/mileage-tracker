@@ -10,7 +10,10 @@ A self-hosted, mobile-first app for logging business mileage and producing month
 - **Rates that change over time.** Each person keeps their own pence-per-mile rates with start and end dates. Adding a new rate offers to end the previous one the day before.
 - **PDF claim** for any dates: this claim period, last period, or custom dates. Claim periods can start on any day of the month (e.g. 26th to 25th). The PDF shows the workings: miles × rate for each rate period, the rates in force, every journey, and signature lines.
 - **Fuel log with receipts.** Record what you paid at the pump (amount, litres, odometer, where) and attach receipt photos or PDFs, even offline. Photos are shrunk on the phone, stored in the database (so they're in every backup) and viewable on all your devices. Reports and the PDF compare fuel paid with the mileage claimed; the photos themselves stay out of the PDF.
+- **More than one vehicle.** Keep a list of the vehicles you drive for work and pick one on each journey and fuel entry. The start reading carries on from that vehicle's last journey, and a report can cover all of them or just one.
+- **Spreadsheet export.** Download the journeys and fuel behind any report as CSV files for a spreadsheet or accounting software.
 - **No sign-up.** Sign in with an email address (or a plain username). Admins create accounts, reset passwords, disable or delete users. Anyone given a password by someone else must choose their own at first sign-in.
+- **Account security.** Optional two-step sign-in with any authenticator app (plus one-off recovery codes), "forgot my password" by email when you configure SMTP, sign-in attempt limits that survive restarts, and an activity log for admins of account and backup changes.
 - **Backups** with `pg_dump` to the server, to S3 (or any S3-compatible storage), or both. Daily schedule, manual backups, download and one-click restore from the admin screen.
 
 ## Screenshots
@@ -69,7 +72,9 @@ All settings are read from `.env` (see `.env.example` for the full list with def
 | `ADMIN_NAME` | no | `Administrator` | Display name for the first account |
 | `SESSION_DAYS` | no | `60` | How long a sign-in lasts |
 | `APP_PORT` | no | `3000` | Host port the app is published on (Docker Compose) |
-| `TRUST_PROXY` | no | `false` | Set `true` behind a reverse proxy (Caddy, nginx, Traefik, Dokploy) |
+| `TRUST_PROXY` | no | `false` | Set `true` behind a reverse proxy (Caddy, nginx, Traefik, Dokploy). Sign-in limits and the activity log use the visitor's address, so this must be right |
+| `APP_URL` | for password reset emails | — | Public address of the app, e.g. `https://mileage.example.com`. Used for the link in reset emails |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | for password reset emails | port `587` | Mail server for "Forgot your password?". Leave `SMTP_HOST` empty to keep that feature off |
 | `TZ` | no | `Europe/London` | Timezone for backup scheduling and timestamps |
 | `DOMAIN` | HTTPS profile only | — | Public domain for the Caddy HTTPS profile |
 | `BACKUP_TARGET` | no | `local` | `local`, `s3` or `both` |
@@ -95,12 +100,12 @@ If you already run nginx or Traefik, proxy to the `app` container on port 3000 i
 
 | Tab | What it's for |
 | --- | --- |
-| Log | Odometer of miles this claim period, the amount so far, fuel paid, and a form to add a journey or fuel. The start reading fills in from your last end reading. |
+| Log | Odometer of miles this claim period, the amount so far, fuel paid, and a form to add a journey or fuel. The start reading fills in from your last end reading. With two or more vehicles, a Vehicle picker appears on the form. |
 | Journeys | Every journey by month. Tap one to edit or delete it. |
 | Fuel | Fill-ups with receipt photos, and fuel paid compared with the claim for this period. |
 | Rates | Your pence-per-mile rates with start and end dates. Warns about overlaps. |
-| Report | Choose dates, see the workings, download or share the PDF. Set which day your claim periods start. |
-| Settings | Sync status, your name and vehicle (shown on the PDF), password, and for admins: Users and Backups. The app version is shown at the bottom of this screen. |
+| Report | Choose dates (and one vehicle, if you have several), see the workings, download or share the PDF, or download the journeys and fuel as CSV. Set which day your claim periods start. |
+| Settings | Sync status, your name and vehicles (shown on the PDF), password, and for admins: Users and Backups. The app version is shown at the bottom of this screen. |
 
 **How the amount is worked out:** journeys are grouped by the rate that applies on their date (or their own custom rate). Each group is *total miles × pence per mile*, rounded to the penny once. The claim is the sum of the groups. Journeys on dates with no rate are listed but not claimed, and flagged in red.
 
@@ -140,7 +145,11 @@ The last line tells devices to re-download.
 
 - **Locked out?** Create or reset an admin from the server:
   `docker compose exec app npm run create-admin -- admin 'new-password'`
+  This also turns off two-step sign-in for that account.
 - **Add a person:** Settings → Users → Add user, then give them their username and password.
+- **Forgotten password:** with `SMTP_HOST` and `APP_URL` set, the sign-in screen shows "Forgot your password?", which emails a link that works once for an hour. It only works for accounts whose username is an email address; for anyone else, set a new password in Settings → Users.
+- **Two-step sign-in:** each person turns it on in Settings with an authenticator app and saves their recovery codes. If someone loses both, edit them in Settings → Users and tick "Turn off their two-step sign-in".
+- **Who did what:** Settings → Activity log lists account and backup changes with who made them, when and from which address. It is kept for two years and survives a restore.
 - **Someone left:** untick "Can sign in" to keep their records, or delete the user to remove their journeys and rates too.
 
 ## Development
@@ -159,11 +168,33 @@ JWT_SECRET=$(openssl rand -base64 48) ADMIN_PASSWORD=adminpass123 BACKUP_DIR=./b
 npm start
 ```
 
+### Tests
+
+```bash
+cd client && npm test          # unit tests: claim maths, periods, receipt text, CSV, PDF
+
+# API tests. Each suite gets a fresh database and its own server, so the user must be
+# allowed to create databases. Needs pg_dump/pg_restore of the same major version as the server.
+cd server && TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/postgres npm test
+
+# Browser test of the built app (sign-in, vehicles, journeys, receipt scan, exports, second device,
+# two-step sign-in, password reset by email, activity log).
+cd client && npm run build
+cd ../e2e && npm install && npx playwright install chromium
+TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/postgres npm test
+```
+
+All three run on every push and pull request (`.github/workflows/ci.yml`).
+
 ### Project layout
 
 ```
-server/            Node API (built-in http, scrypt passwords, signed tokens; only dependency is pg)
+server/            Node API (built-in http, scrypt passwords, signed tokens; depends only on pg and nodemailer)
   src/api.js       Login, users, sync, backups endpoints
+  src/totp.js      Authenticator-app codes for two-step sign-in
+  src/ratelimit.js Attempt limits, counted in the database
+  src/audit.js     Activity log
+  src/mail.js      SMTP for password reset emails
   src/backup.js    pg_dump / pg_restore, local + S3, daily schedule
   src/schema.sql   Tables; applied automatically at start
 client/            React PWA built with esbuild
@@ -172,8 +203,10 @@ client/            React PWA built with esbuild
   src/calc.js      Claim maths (shared by screens and PDF)
   src/pdf.js       PDF claim (pdf-lib, generated on the phone)
   src/receipts.js  Receipt photos: shrink, store offline, fetch from server
-  test/            Unit tests for the maths and PDF
-server/test/       End-to-end API tests (api.test.mjs, fuel.test.mjs)
+  src/csv.js       CSV export of a report's journeys and fuel
+  test/            Unit tests for the maths, CSV and PDF
+server/test/       API tests against a real server and database (run.mjs starts them)
+e2e/               Browser test of the whole app (Playwright)
 DOKPLOY.md         Dokploy deployment guide
 ```
 
@@ -182,15 +215,19 @@ DOKPLOY.md         Dokploy deployment guide
 | Method | Path | Who |
 | --- | --- | --- |
 | POST | `/api/auth/login` | anyone (rate limited) |
+| GET | `/api/auth/options` | anyone |
+| POST | `/api/auth/forgot`, `/api/auth/reset` | anyone (rate limited; needs SMTP) |
+| POST | `/api/auth/2fa/setup`, `/enable`, `/disable` | signed in |
 | GET / PUT | `/api/auth/me` | signed in |
 | POST | `/api/auth/password` | signed in |
-| POST | `/api/sync` | signed in (journeys, rates, fuel) |
+| POST | `/api/sync` | signed in (journeys, rates, fuel, vehicles) |
 | PUT / GET | `/api/files/:id` | signed in, own receipts only (photo or PDF, max 10 MB) |
 | GET / POST | `/api/users` | admin |
 | PATCH / DELETE | `/api/users/:id` | admin |
 | GET / POST | `/api/backups` | admin |
 | GET | `/api/backups/:id/download` | admin |
 | POST | `/api/backups/:id/restore` | admin |
+| GET | `/api/audit` | admin |
 
 There is intentionally no sign-up endpoint.
 
@@ -212,7 +249,7 @@ Before filing one, it's worth a quick look at **[ROADMAP.md](ROADMAP.md)** in ca
 
 ## Contributing
 
-Issues and pull requests are welcome. For anything non-trivial, please open an issue first to discuss the change. Run `npm test` in both `client/` and `server/` before submitting. See [ROADMAP.md](ROADMAP.md) for ideas that aren't built yet.
+Issues and pull requests are welcome. For anything non-trivial, please open an issue first to discuss the change. Run `npm test` in both `client/` and `server/` before submitting (see [Tests](#tests)). See [ROADMAP.md](ROADMAP.md) for ideas that aren't built yet.
 
 ## Changelog and roadmap
 

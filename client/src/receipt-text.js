@@ -23,8 +23,10 @@ export function parseReceiptText(text) {
         if (value > 0 && value <= 100000) amounts.push({value, priority: /\btotal\b|amount\s*paid/i.test(line) ? 2 : 1});
       }
     }
-    const volume = line.match(/\b(\d{1,4}(?:[.,]\d{1,3})?)\s*(?:litres?|ltrs?|l)\b/i) || line.match(/\b(?:litres?|ltrs?|volume)\s*[:=]?\s*(\d{1,4}(?:[.,]\d{1,3})?)\b/i);
-    if (volume && !/per\s*litre|\/\s*l\b/i.test(line)) {
+    // Drop a trailing unit price ("42.31 LITRES @ 139.9 P/L") so it doesn't hide the volume on the same line.
+    const volLine = line.replace(/@.*$/, '').replace(/\d+(?:[.,]\d+)?\s*p?\s*\/\s*(?:litres?|ltrs?|l)\b/gi, '');
+    const volume = volLine.match(/\b(\d{1,4}(?:[.,]\d{1,3})?)\s*(?:litres?|ltrs?|l)\b/i) || volLine.match(/\b(?:litres?|ltrs?|volume)\s*[:=]?\s*(\d{1,4}(?:[.,]\d{1,3})?)\b/i);
+    if (volume && !/per\s*litre|\/\s*l\b/i.test(volLine)) {
       const n = Number(volume[1].replace(',', '.'));
       if (n > 0 && n <= 2000) volumes.add(n.toFixed(2));
     }

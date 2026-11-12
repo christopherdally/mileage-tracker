@@ -107,3 +107,4 @@ ok(list2.j.backups.some((b) => /before restore/.test(b.createdBy)) && list2.j.ba
 ok((await call('GET', '/api/nothing')).s === 404, 'unknown api 404');
 ok((await call('DELETE', '/api/users/' + adminId, null, admin)).s === 400, 'cannot delete yourself');
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');
+process.exitCode = fails ? 1 : 0;

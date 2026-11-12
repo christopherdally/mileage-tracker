@@ -7,6 +7,55 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Multiple vehicles per user. Settings has a list of vehicles; with two or
+  more, journeys and fuel entries get a Vehicle picker (defaulting to the one
+  used last), the start reading carries on from that vehicle's last journey,
+  and a report can cover all vehicles or one. A PDF that mixes vehicles says
+  which was used for each entry and adds a miles-by-vehicle table. The old
+  single free-text vehicle becomes each user's first vehicle and their
+  existing entries are attached to it the first time the server starts.
+- CSV export of the journeys and fuel behind a report, from the Report tab.
+- Two-step sign-in. Anyone can turn it on in Settings with an authenticator
+  app; signing in then needs a 6-digit code or one of ten one-off recovery
+  codes. Admins can turn it off for someone who has lost both, and
+  `create-admin` does the same for a locked-out admin.
+- "Forgot your password?" on the sign-in screen, which emails a link that
+  works once for an hour. Needs `APP_URL` and `SMTP_HOST` to be set and is
+  hidden otherwise; it covers accounts whose username is an email address.
+- Activity log for admins (Settings → Activity log): user creation, changes
+  and deletion, backups made, downloaded and restored, and password and
+  two-step changes, with who, when and from which address. Kept for two
+  years and preserved across a restore.
+- Continuous integration (GitHub Actions): client unit tests and build, API
+  tests against PostgreSQL, and a browser test of the whole app including the
+  receipt scanner. `npm test` now works in `server/`, and `e2e/` holds the
+  browser test.
+
+### Changed
+
+- Admins set a vehicle only when creating a user; after that each person
+  manages their own vehicles in Settings.
+- Sign-in attempt limits are counted in the database instead of in memory, so
+  they survive a restart and hold across more than one server. Wrong
+  two-step codes and password reset requests have their own limits.
+- The server now depends on `nodemailer` (for reset emails) as well as `pg`.
+- Restoring a backup re-applies the schema, so a backup taken by an older
+  version works straight away.
+
+### Fixed
+
+- On the Fuel tab, closing the scan review or a receipt preview also closed
+  the fuel form underneath and discarded what had been entered.
+
+- Receipt scanning never started: the scanner library was imported in a way
+  the bundle didn't support, and its worker, WASM core and language data were
+  fetched from a CDN that the app's Content-Security-Policy blocks. The
+  scanner is now bundled and served by the app itself.
+- Litres are now read from lines that also carry a unit price, such as
+  `42.31 LITRES @ 139.9 P/L`.
+
 ## [1.0.0] - 2026-10-16
 
 First tagged release.

@@ -6,7 +6,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { query } from './db.js';
+import { query, migrate } from './db.js';
 
 const env = process.env;
 export const BACKUP_DIR = path.resolve(env.BACKUP_DIR || '/backups');
@@ -150,9 +150,12 @@ export async function restoreBackup(b) {
   const file = await fetchBackupFile(b);
   // The backup log lives in the same database; keep today's log rather than the restored (older) one.
   const { rows: log } = await query('SELECT * FROM backups ORDER BY id');
+  // Likewise the activity log: a restore must not erase the record of what was done since the backup.
+  const { rows: activity } = await query('SELECT * FROM audit_log ORDER BY id');
   try {
     await run('pg_restore', ['--clean', '--if-exists', '--no-owner', '--no-privileges', '--single-transaction',
       '--dbname', env.DATABASE_URL, file.path]);
+    await migrate(); // a backup from an older version won't have newer tables and columns
     await query("UPDATE meta SET value = gen_random_uuid()::text WHERE key='data_epoch'");
     await query('TRUNCATE backups');
     for (const r of log) {
@@ -163,6 +166,12 @@ export async function restoreBackup(b) {
       );
     }
     await query("SELECT setval(pg_get_serial_sequence('backups','id'), GREATEST((SELECT max(id) FROM backups), 1))");
+    await query('TRUNCATE audit_log');
+    for (const r of activity) {
+      await query('INSERT INTO audit_log (id,at,actor,action,target,detail,ip) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [r.id, r.at, r.actor, r.action, r.target, JSON.stringify(r.detail), r.ip]);
+    }
+    await query("SELECT setval(pg_get_serial_sequence('audit_log','id'), GREATEST((SELECT max(id) FROM audit_log), 1))");
     await query('INSERT INTO backups (filename,target,location,status,created_by) VALUES ($1,$2,$3,$4,$5)',
       [b.filename, b.target, b.location, 'restored', 'restore']);
   } finally {
